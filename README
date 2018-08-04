@@ -1,4 +1,4 @@
-DCE Naming Services for Solaris/Linux version 3.0
+DCE Naming Services for Solaris/Linux version 3.1
 -------------------------------------------------
 
 Introduction
@@ -139,6 +139,14 @@ this has undesirable security implications.
 
 Changes
 -------
+
+Version 3.1
+
+     - Added Linux RPM spec contributed by Eric J Barkie <ebarkie@us.ibm.com>
+       to source distribution.
+
+     - Added Linux binary RPM to distribution site.
+
 
 Version 3.0
 
