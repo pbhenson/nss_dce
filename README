@@ -10,37 +10,17 @@ switch architecture. It allows you to specify "dce" as a source in the
 to duplicate your security registry in local passwd and group files.
 
 
-Survey
-------
-
-Before you install nss_dce (or after, whatever), I'd appreciate it if you
-could answer a quick question.
-
-Would you be interested in having nss_dce support the shadow password calls
-(getsp*)? Supporting the shadow password interface would allow completely
-transparent use of the DCE registry for applications that only need to
-authenticate users, and don't need to acquire DCE credentials. However, you
-would need to enable return of encrypted passwords in your registry
-configuration, allowing potential dictionary attacks. Ideally, you could
-configure your registry to only give out encrypted passwords to particular
-users (for example, hosts/*/self, the identity nss_dced runs as).
-Unfortunately, the current registry configuration is all or nothing.
-
-Please send your opinion to <henson@acm.org>, to help me decide whether or
-not to spend the time implementing this functionality.
-
-
 Installation
 ------------
 
-If you wish to change the compiler used (defaults to gcc), or enable
-debugging, edit the Makefile. Turning on debugging in the daemon enables
-verbose debugging output via syslog with priority DEBUG. Turning on
-debugging in the shared library will generate messages to stderr when
-clients use the naming service. Please note that if you change the default
-C compiler, you will likely need to edit the Makefile in the nss_dce.so
-directory and modify the options for generating position independent code
-and shared libraries.
+If you wish to change the compiler used (defaults to gcc), enable
+debugging, or enable sequential passwd/group lookups, edit the
+Makefile. Turning on debugging in the daemon enables verbose debugging
+output via syslog with priority DEBUG. Turning on debugging in the shared
+library will generate messages to stderr when clients use the naming
+service. Please note that if you change the default C compiler, you will
+likely need to edit the Makefile in the nss_dce.so directory and modify the
+options for generating position independent code and shared libraries.
 
 Typing "make" will compile the shared library, the daemon, and some test
 programs.
@@ -120,6 +100,27 @@ structure?
 
 Changes
 -------
+
+Version 1.6
+
+     - This release is dedicated to Paul Hilchey <hilchey@ucs.ubc.ca>, who
+       suggested all of the following fixes/improvements.
+
+     - Fixed memory management problem in client, which was occasionally
+       causing corrupted entries to be returned if nscd was running.
+
+     - Added check in the client to see if the PID of the calling process
+       is the same as the PID of the process that instantiated this
+       client. If not, create a new connection to the daemon. Inheritance
+       of connections from parent to children was causing problems with
+       cron.
+
+     - Added compile-time option to disable sequential passwd/group lookups
+       (getpwent, getgrent). By default the option disables sequential
+       lookups. To enable them, edit the Makefile before compiling.
+
+     - Revamped client to remove redundant code.
+
 
 Version 1.5
 

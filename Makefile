@@ -9,6 +9,14 @@
 # Choose your C compiler
 CC = gcc
 
+# Comment out to enable sequential password lookups (getpwent)
+GETPWENT_DISABLE = -DNO_GETPWENT
+
+# Comment out to enable sequential group lookups (getgrent)
+GETGRENT_DISABLE = -DNO_GETGRENT
+
+SEQUENTIAL_DISABLE = $(GETPWENT_DISABLE) $(GETGRENT_DISABLE)
+
 # Uncomment to turn on syslog debugging in the daemon
 #
 #DEBUG_DAEMON = -DDEBUG
@@ -27,7 +35,7 @@ CC = gcc
 #PIDFILE = -DNSS_DCED_PIDFILE="\\\"\"/var/tmp/.nss_dced.pid\"\\\" "
 
 all:
-	@cd nss_dce.so; make CC=$(CC) DEBUG=$(DEBUG_LIB) SOCKETPATH=$(SOCKETPATH) all
+	@cd nss_dce.so; make CC=$(CC) DEBUG=$(DEBUG_LIB) SOCKETPATH=$(SOCKETPATH) SEQUENTIAL_DISABLE="$(SEQUENTIAL_DISABLE)" all
 	@cd nss_dced; make CC=$(CC) DEBUG=$(DEBUG_DAEMON) SOCKETPATH=$(SOCKETPATH) PIDFILE=$(PIDFILE) all
 	@cd tests; make CC=$(CC) all
 

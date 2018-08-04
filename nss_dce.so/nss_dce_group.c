@@ -8,96 +8,27 @@
  */
 
 #include <stdio.h>
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/un.h>
 #include <nss_dbdefs.h>
 #include <grp.h>
 #include <dce/rgynbase.h>
 #include "nss_dced_protocol.h"
+#include "nss_dce_common.h"
+#include "nss_dce_group.h"
 
-#ifdef DEBUG
-#define TRACE(X...) { fprintf(stderr, X); fflush(stderr); } 
-#else
-#define TRACE(X...)
-#endif
-
-#define SOCKIO_OK -1
-
-#define sock_read(X, Y, Z) { int ret_val = _sock_read(X, Y, Z); \
-                             if (ret_val != SOCKIO_OK) return ret_val; }
-
-#define sock_write(X, Y, Z) { int ret_val = _sock_write(X, Y, Z); \
-                              if (ret_val != SOCKIO_OK) return ret_val; }
-
-typedef	struct dce_backend *dce_backend_ptr_t;
-typedef	nss_status_t (*dce_backend_op_t)(dce_backend_ptr_t, void *);
-
-struct dce_backend
-{
-  dce_backend_op_t *ops;
-  nss_dbop_t n_ops;
-
-  int sock;
-  struct group grp;
-};
-
-static int bind_sock(dce_backend_ptr_t backend)
-{
-  struct sockaddr_un name;
-
-  TRACE("nss_dce_group.bind_sock: entered\n");
-  
-  if (backend->sock)
-    close(backend->sock);
-  
-  if ((backend->sock = socket(AF_UNIX, SOCK_STREAM, PF_UNSPEC)) < 0)
-    {
-      TRACE("nss_dce_group.bind_sock: socket failed, returning NSS_UNAVAIL\n");
-      return NSS_UNAVAIL;
-    }
-    
-  name.sun_family = AF_UNIX;
-  strcpy(name.sun_path, NSS_DCED_SOCKETPATH);
-  
-  if (connect(backend->sock, (struct sockaddr *)&name, sizeof(struct sockaddr_un)))
-    {
-      TRACE("nss_dce_group.bind_sock: connect failed, returning NSS_UNAVAIL\n");
-      close(backend->sock);
-      return NSS_UNAVAIL;
-    }
-
-  TRACE("nss_dce_group.bind_sock: established connection, returning NSS_TRYAGAIN\n");
-  return NSS_TRYAGAIN;
-}
-
-static int _sock_read(dce_backend_ptr_t backend, const void *buf, size_t nbytes)
-{
-  if (read(backend->sock, buf, nbytes) != nbytes)
-    return bind_sock(backend);
-  else
-    return SOCKIO_OK;
-}
-
-static int _sock_write(dce_backend_ptr_t backend, const void *buf, size_t nbytes)
-{
-  void *pipe_orig = signal(SIGPIPE, SIG_IGN);
-  int wbytes = write(backend->sock, buf, nbytes);
-  
-  signal(SIGPIPE, pipe_orig);
-  return ((wbytes == nbytes) ? SOCKIO_OK : bind_sock(backend));
-}
 
 nss_status_t _nss_dce_getgrnam(dce_backend_ptr_t backend, void *data)
 {
-  nss_XbyY_args_t *lookup_data = (nss_XbyY_args_t *) data;
-  nss_dced_message_t request;
-  nss_dced_message_t response = NSS_DCED_UNAVAIL;
+  nss_XbyY_args_t *lookup_data = (nss_XbyY_args_t *)data;
   int string_length;
-  gid_t gid;
 
   TRACE("nss_dce_group.getgrnam: called for groupname %s\n", lookup_data->key.name);
+  
+  if (backend->pid != getpid())
+    {
+      TRACE("nss_dce_group.getgrnam: pid change, rebinding\n");
+      if (_nss_dce_bind_sock(backend) != NSS_TRYAGAIN)
+	return NSS_UNAVAIL;
+    }
   
   if ((string_length = strlen(lookup_data->key.name)+1) > sec_rgy_name_t_size)
     {
@@ -105,162 +36,71 @@ nss_status_t _nss_dce_getgrnam(dce_backend_ptr_t backend, void *data)
       return NSS_NOTFOUND;
     }
   
-  request = NSS_DCED_GETGRNAM;
-  sock_write(backend, &request, sizeof(request));
-  
-  sock_write(backend, &string_length, sizeof(string_length));
-  sock_write(backend, lookup_data->key.name, string_length);
+  _nss_dce_request(backend, NSS_DCED_GETGRNAM);
+  _nss_dce_sock_write_string(backend, lookup_data->key.name, string_length);
 
-  sock_read(backend, &response, sizeof(response));
-
-  switch(response)
-    {
-    case NSS_DCED_UNAVAIL:
-      TRACE("nss_dce_group.getgrnam: returning NSS_UNAVAIL\n");
-      return NSS_UNAVAIL;
-      
-    case NSS_DCED_NOTFOUND:
-      TRACE("nss_dce_group.getgrnam: returning NSS_NOTFOUND\n");
-      return NSS_NOTFOUND;
-
-    case NSS_DCED_SUCCESS:
-      break;
-        
-    default:
-      TRACE("nss_dce_group.getgrnam: unknown result code received, returning NSS_NOTFOUND\n");
-      return NSS_NOTFOUND;
-    }
-
-  sock_read(backend, &string_length, sizeof(string_length));
-  sock_read(backend, backend->grp.gr_name, string_length);
-
-  sock_read(backend, &gid, sizeof(gid));
-  backend->grp.gr_gid = gid;
-
-  *((struct group *) lookup_data->buf.result) = backend->grp;
-  lookup_data->returnval = &(backend->grp);
-
-  TRACE("nss_dce_group.getgrnam: returning NSS_SUCCESS\n");
-  return NSS_SUCCESS;
+  return _nss_dce_read_response(backend, data, _nss_dce_gr_entry_reader);
 }
 
 nss_status_t _nss_dce_getgrgid(dce_backend_ptr_t backend, void *data)
 {
   nss_XbyY_args_t *lookup_data = (nss_XbyY_args_t *)data;
-  nss_dced_message_t request;
-  nss_dced_message_t response = NSS_DCED_UNAVAIL;
-  int string_length;
-  gid_t gid;
 
   TRACE("nss_dce_group.getgrgid: called for GID %d\n", lookup_data->key.gid);
 
-  request = NSS_DCED_GETGRGID;
-  sock_write(backend, &request, sizeof(request));
-
-  gid = lookup_data->key.gid;
-  sock_write(backend, &gid, sizeof(gid));
-
-  sock_read(backend, &response, sizeof(response));
-
-  switch(response)
+  if (backend->pid != getpid())
     {
-    case NSS_DCED_UNAVAIL:
-      TRACE("nss_dce_group.getgrgid: returning NSS_UNAVAIL\n");
-      return NSS_UNAVAIL;
-      
-    case NSS_DCED_NOTFOUND:
-      TRACE("nss_dce_group.getgrgid: returning NSS_NOTFOUND\n");
-      return NSS_NOTFOUND;
-
-    case NSS_DCED_SUCCESS:
-      break;
-        
-    default:
-      TRACE("nss_dce_group.getgrgid: unknown result code received, returning NSS_NOTFOUND\n");
-      return NSS_NOTFOUND;
+      TRACE("nss_dce_group.getgrgid: pid change, rebinding\n");
+      if (_nss_dce_bind_sock(backend) != NSS_TRYAGAIN)
+	return NSS_UNAVAIL;
     }
+  
+  _nss_dce_request(backend, NSS_DCED_GETGRGID);
+  _nss_dce_sock_write(backend, &lookup_data->key.gid, sizeof(lookup_data->key.gid));
 
-  sock_read(backend, &string_length, sizeof(string_length));
-  sock_read(backend, backend->grp.gr_name, string_length);
-
-  sock_read(backend, &gid, sizeof(gid));
-  backend->grp.gr_gid = gid;
-
-  *((struct group *) lookup_data->buf.result) = backend->grp;
-  lookup_data->returnval = &(backend->grp);
-
-  TRACE("nss_dce_group.getgrgid: returning NSS_SUCCESS\n");
-  return NSS_SUCCESS;  
+  return _nss_dce_read_response(backend, data, _nss_dce_gr_entry_reader);
 }
 
-nss_status_t _nss_dce_setgrent(dce_backend_ptr_t backend, void *dummy)
+nss_status_t _nss_dce_setgrent(dce_backend_ptr_t backend, void *data)
 {
-  nss_dced_message_t request;
-  nss_dced_message_t response = NSS_DCED_UNAVAIL;
-
   TRACE("nss_dce_group.setgrent: called\n");
-    
-  request = NSS_DCED_SETGRENT;
-  sock_write(backend, &request, sizeof(request));
 
-  sock_read(backend, &response, sizeof(response));
-
-  switch(response)
+  if (backend->pid != getpid())
     {
-    case NSS_DCED_UNAVAIL:
-      TRACE("nss_dce_group.setgrent: returned NSS_UNAVAIL\n");
-      return NSS_UNAVAIL;
-        
-    default:
-      TRACE("nss_dce_group.setgrent: returned NSS_SUCCESS\n");
-      return NSS_SUCCESS;
+      TRACE("nss_dce_group.setgrent: pid change, rebinding\n");
+      if (_nss_dce_bind_sock(backend) != NSS_TRYAGAIN)
+	return NSS_UNAVAIL;
     }
+  
+#ifdef NO_GETGRENT
+  TRACE("nss_dce_group.setgrent: sequential lookups disabled, returning NSS_SUCCESS\n");
+  return NSS_SUCCESS;
+#else
+  _nss_dce_request(backend, NSS_DCED_SETGRENT);
+
+  return _nss_dce_read_response(backend, (nss_XbyY_args_t *)data, _nss_dce_null_entry_reader);
+#endif
 }
 
 nss_status_t _nss_dce_getgrent(dce_backend_ptr_t backend, void *data)
 {
-  nss_XbyY_args_t *lookup_data = (nss_XbyY_args_t *) data;
-  nss_dced_message_t request;
-  nss_dced_message_t response = NSS_DCED_UNAVAIL;
-  int string_length;
-  gid_t gid;
-
   TRACE("nss_dce_group.getgrent: called\n");
     
-  request = NSS_DCED_GETGRENT;
-  sock_write(backend, &request, sizeof(request));
-
-  sock_read(backend, &response, sizeof(response));
-
-  switch(response)
+  if (backend->pid != getpid())
     {
-    case NSS_DCED_UNAVAIL:
-      TRACE("nss_dce_group.getgrent: returning NSS_UNAVAIL\n");
-      *((struct group *) lookup_data->buf.result) = backend->grp;
-      lookup_data->returnval = NULL;
-      return NSS_UNAVAIL;
-      
-    case NSS_DCED_SUCCESS:
-      break;
-        
-    default:
-      TRACE("nss_dce_group.getgrent: returning NSS_NOTFOUND\n");
-      *((struct group *) lookup_data->buf.result) = backend->grp;
-      lookup_data->returnval = NULL;
-      return NSS_NOTFOUND;
+      TRACE("nss_dce_group.getgrent: pid change, rebinding\n");
+      if (_nss_dce_bind_sock(backend) != NSS_TRYAGAIN)
+	return NSS_UNAVAIL;
     }
+  
+#ifdef NO_GETGRENT
+  TRACE("nss_dce_group.getgrent: sequential lookups disabled, returning NSS_NOTFOUND\n");
+  return NSS_NOTFOUND;
+#else
+  _nss_dce_request(backend, NSS_DCED_GETGRENT);
 
-  sock_read(backend, &string_length, sizeof(string_length));
-  sock_read(backend, backend->grp.gr_name, string_length);
-
-  sock_read(backend, &gid, sizeof(gid));
-  backend->grp.gr_gid = gid;
-
-  *((struct group *) lookup_data->buf.result) = backend->grp;
-  lookup_data->returnval = &(backend->grp);
-
-  TRACE("nss_dce_group.getgrent: returning NSS_SUCCESS\n");
-  return NSS_SUCCESS;
+  return _nss_dce_read_response(backend, data, _nss_dce_gr_entry_reader);
+#endif
 }
 
 nss_status_t _nss_dce_endgrent(dce_backend_ptr_t backend, void *dummy)
@@ -272,100 +112,41 @@ nss_status_t _nss_dce_endgrent(dce_backend_ptr_t backend, void *dummy)
 
 nss_status_t _nss_dce_getgroupsbymember(dce_backend_ptr_t backend, void *data)
 {
-  struct nss_groupsbymem *lookup_data = (struct nss_groupsbymem *) data;
-  nss_dced_message_t request;
-  nss_dced_message_t response = NSS_DCED_UNAVAIL;
-  int numgids_orig = lookup_data->numgids;
+  struct nss_groupsbymem *lookup_data = (struct nss_groupsbymem *)data;
   int string_length;
-  int return_count;
-  int duplicate_flag;
-  int index;
-  gid_t gid;
-
-  TRACE("nss_dce_getgroupsbymember: called for username %s\n", lookup_data->username);
-      
+  
+  if (backend->pid != getpid())
+    {
+      TRACE("nss_dce_group.getgroupsbymember: pid change, rebinding\n");
+      if (_nss_dce_bind_sock(backend) != NSS_TRYAGAIN)
+	return NSS_UNAVAIL;
+    }
+  
   if ((string_length = strlen(lookup_data->username)+1) > sec_rgy_name_t_size)
     {
       TRACE("nss_dce_group.getgroupsbymember: name too long, returning NSS_NOTFOUND\n");
       return NSS_NOTFOUND;
     }
 
-  request = NSS_DCED_GETGROUPSBYMEMBER;
-  sock_write(backend, &request, sizeof(request));
+  _nss_dce_request(backend, NSS_DCED_GETGROUPSBYMEMBER);
+  _nss_dce_sock_write_string(backend, lookup_data->username, string_length);
 
-  sock_write(backend, &string_length, sizeof(string_length));
-  sock_write(backend, lookup_data->username, string_length);
-  
-  sock_read(backend, &response, sizeof(response));
-
-  switch(response)
-    {
-      case NSS_DCED_UNAVAIL:
-	TRACE("nss_dce_group.getgroupsbymember: returning NSS_UNAVAIL\n");
-	return NSS_UNAVAIL;
-
-      case NSS_DCED_SUCCESS:
-	break;
-
-      default:
-	TRACE("nss_dce_group.getgroupsbymember: returning NSS_NOTFOUND\n");
-	return NSS_NOTFOUND;
-    }
-
-  sock_read(backend, &return_count, sizeof(return_count));
-
-  while (return_count > 0)
-    {
-      duplicate_flag = 0;
-
-      sock_read(backend, &gid, sizeof(gid));
-
-      for (index = 0; index < numgids_orig; index++)
-	if (gid == lookup_data->gid_array[index])
-	  duplicate_flag = 1;
-	
-      if ((!duplicate_flag) && (lookup_data->numgids < lookup_data->maxgids))
-	lookup_data->gid_array[lookup_data->numgids++] = gid;
-      
-      return_count--;
-    }
-
-  if (lookup_data->numgids == lookup_data->maxgids)
-    return NSS_SUCCESS;
-  else
-    return NSS_NOTFOUND;
+  return _nss_dce_read_response(backend, data, _nss_dce_grbymem_entry_reader);
 }
 				     
-nss_status_t _nss_dce_group_destr(dce_backend_ptr_t backend, void *dummy)
-{
-  TRACE("nss_dce_group.group_destr: called\n");
-    
-  close(backend->sock);
-
-  free(backend->grp.gr_name);
-  free(backend->grp.gr_passwd);
-  free(backend->grp.gr_mem);
-  free(backend);
-
-  TRACE("nss_dce_group.group_destr: returning NSS_SUCCESS\n");
-  return NSS_SUCCESS;
-}
-
 static dce_backend_op_t group_ops[] = {
-	_nss_dce_group_destr,
-	_nss_dce_endgrent,
-	_nss_dce_setgrent,
-	_nss_dce_getgrent,
-	_nss_dce_getgrnam,
-	_nss_dce_getgrgid,
-	_nss_dce_getgroupsbymember
+  _nss_dce_destr,
+  _nss_dce_endgrent,
+  _nss_dce_setgrent,
+  _nss_dce_getgrent,
+  _nss_dce_getgrnam,
+  _nss_dce_getgrgid,
+  _nss_dce_getgroupsbymember
 };
 
-nss_backend_t *_nss_dce_group_constr(const char *dummy1, const char *dummy2,
-                                     const char *dummy3)
+nss_backend_t *_nss_dce_group_constr(const char *db_name, const char *src_name, const char *cfg_args)
 {
   dce_backend_ptr_t backend;
-  struct sockaddr_un name;
 
   TRACE("nss_dce_group.group_constr: called\n");
   
@@ -376,20 +157,81 @@ nss_backend_t *_nss_dce_group_constr(const char *dummy1, const char *dummy2,
   backend->n_ops = (sizeof (group_ops) / sizeof (group_ops[0]));
   backend->sock = 0;
 
-  if (bind_sock(backend) == NSS_UNAVAIL)
-    return 0;
-
-  if (!(backend->grp.gr_name = (char *)malloc(sec_rgy_name_t_size)))
-    return 0;
-  if (!(backend->grp.gr_passwd = (char *)malloc(1)))
-    return 0;
-  backend->grp.gr_passwd[0] = '\0';
-  if (!(backend->grp.gr_mem = (char **)malloc(sizeof(char **))))
-    return 0;
-  backend->grp.gr_mem[0] = NULL;
+  if (_nss_dce_bind_sock(backend) == NSS_UNAVAIL)
+    {
+      free(backend);
+      return 0;
+    }
 
   TRACE("nss_dce_group.group_constr: returning pointer to backend instance\n");
   return ((nss_backend_t *) backend);
 }
 
+nss_status_t _nss_dce_gr_entry_reader(dce_backend_ptr_t backend, void *data)
+{
+  nss_XbyY_args_t *lookup_data = (nss_XbyY_args_t *)data;
+  struct group *grp = (struct group *)lookup_data->buf.result;
+  char *buffer_start = lookup_data->buf.buffer;
+  int *buffer_length = &(lookup_data->buf.buflen);
+
+  TRACE("nss_dce_group.gr_entry_reader: called\n");
+
+  _nss_dce_sock_read_string(backend, &(grp->gr_name), &buffer_start, buffer_length);
+  grp->gr_passwd = buffer_start - 1;
+  _nss_dce_sock_read(backend, &(grp->gr_gid), sizeof(grp->gr_gid));
+
+  grp->gr_mem = (char **)ROUND_UP(buffer_start, sizeof(buffer_start));
+
+  *buffer_length -= (char *)(grp->gr_mem) - buffer_start;
+  buffer_start = (char *)(grp->gr_mem + 1);
+  *buffer_length -= sizeof(grp->gr_mem);
+
+  if (*buffer_length >= 0)
+    {
+      grp->gr_mem[0] = NULL;
+      lookup_data->returnval = grp;
+    }
+  else
+    {
+      lookup_data->erange = 1;
+      lookup_data->returnval = NULL;
+    }
+
+  return NSS_SUCCESS;
+}
+
+nss_status_t _nss_dce_grbymem_entry_reader(dce_backend_ptr_t backend, void *data)
+{
+  struct nss_groupsbymem *lookup_data = (struct nss_groupsbymem *)data;
+  int numgids_orig = lookup_data->numgids;
+  int return_count;
+  int duplicate_flag;
+  int index;
+  gid_t gid;
+  
+  TRACE("nss_dce_group.grbymem_entry_reader: called\n");
+
+  _nss_dce_sock_read(backend, &return_count, sizeof(return_count));
+
+  while (return_count > 0)
+    {
+      duplicate_flag = 0;
+
+      _nss_dce_sock_read(backend, &gid, sizeof(gid));
+
+      for (index = 0; index < numgids_orig; index++)
+        if (gid == lookup_data->gid_array[index])
+          duplicate_flag = 1;
+        
+      if ((!duplicate_flag) && (lookup_data->numgids < lookup_data->maxgids))
+        lookup_data->gid_array[lookup_data->numgids++] = gid;
+      
+      return_count--;
+    }
+
+  if (lookup_data->numgids == lookup_data->maxgids)
+    return NSS_SUCCESS;
+  else
+    return NSS_NOTFOUND;
+}
 

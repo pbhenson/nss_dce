@@ -6,9 +6,9 @@
 # Copyright (c) 1997,1998 Paul Henson -- see COPYRIGHT file for details
 #
 
-OBJECTS = nss_dce_passwd.o nss_dce_group.o
+OBJECTS = nss_dce_passwd.o nss_dce_group.o nss_dce_common.o
 
-CFLAGS = -fpic $(DEBUG) $(SOCKETPATH) -D_REENTRANT -DPIC -D_TS_ERRNO -I../nss_dced
+CFLAGS = -fpic $(DEBUG) $(SOCKETPATH) $(SEQUENTIAL_DISABLE) -D_REENTRANT -DPIC -D_TS_ERRNO -I../nss_dced
 
 LIBS = -lsocket -lnsl -lc
 
