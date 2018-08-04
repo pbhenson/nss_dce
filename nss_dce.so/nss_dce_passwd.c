@@ -3,7 +3,7 @@
  *
  * Paul Henson <henson@acm.org>
  *
- * Copyright (c) 1997 Paul Henson -- see COPYRIGHT file for details
+ * Copyright (c) 1997,1998 Paul Henson -- see COPYRIGHT file for details
  *
  */
 
@@ -18,7 +18,7 @@
 #include "nss_dced_protocol.h"
 
 #ifdef DEBUG
-#define TRACE(X...) fprintf(stderr, X)
+#define TRACE(X...) { fprintf(stderr, X); fflush(stderr); }
 #else
 #define TRACE(X...)
 #endif

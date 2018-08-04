@@ -3,7 +3,7 @@
  *
  * Paul Henson <henson@acm.org>
  *
- * Copyright (c) 1997 Paul Henson -- see COPYRIGHT file for details
+ * Copyright (c) 1997,1998 Paul Henson -- see COPYRIGHT file for details
  *
  */
 
@@ -18,7 +18,7 @@
 #include "nss_dced_protocol.h"
 
 #ifdef DEBUG
-#define TRACE(X...) fprintf(stderr, X)
+#define TRACE(X...) { fprintf(stderr, X); fflush(stderr); } 
 #else
 #define TRACE(X...)
 #endif
@@ -263,7 +263,6 @@ nss_status_t _nss_dce_getgrent(dce_backend_ptr_t backend, void *data)
   return NSS_SUCCESS;
 }
 
-
 nss_status_t _nss_dce_endgrent(dce_backend_ptr_t backend, void *dummy)
 {
   TRACE("nss_dce_group.endgrent: returning NSS_SUCCESS\n");
@@ -271,6 +270,72 @@ nss_status_t _nss_dce_endgrent(dce_backend_ptr_t backend, void *dummy)
   return NSS_SUCCESS;
 }
 
+nss_status_t _nss_dce_getgroupsbymember(dce_backend_ptr_t backend, void *data)
+{
+  struct nss_groupsbymem *lookup_data = (struct nss_groupsbymem *) data;
+  nss_dced_message_t request;
+  nss_dced_message_t response = NSS_DCED_UNAVAIL;
+  int numgids_orig = lookup_data->numgids;
+  int string_length;
+  int return_count;
+  int duplicate_flag;
+  int index;
+  gid_t gid;
+
+  TRACE("nss_dce_getgroupsbymember: called for username %s\n", lookup_data->username);
+      
+  if ((string_length = strlen(lookup_data->username)+1) > sec_rgy_name_t_size)
+    {
+      TRACE("nss_dce_group.getgroupsbymember: name too long, returning NSS_NOTFOUND\n");
+      return NSS_NOTFOUND;
+    }
+
+  request = NSS_DCED_GETGROUPSBYMEMBER;
+  sock_write(backend, &request, sizeof(request));
+
+  sock_write(backend, &string_length, sizeof(string_length));
+  sock_write(backend, lookup_data->username, string_length);
+  
+  sock_read(backend, &response, sizeof(response));
+
+  switch(response)
+    {
+      case NSS_DCED_UNAVAIL:
+	TRACE("nss_dce_group.getgroupsbymember: returning NSS_UNAVAIL\n");
+	return NSS_UNAVAIL;
+
+      case NSS_DCED_SUCCESS:
+	break;
+
+      default:
+	TRACE("nss_dce_group.getgroupsbymember: returning NSS_NOTFOUND\n");
+	return NSS_NOTFOUND;
+    }
+
+  sock_read(backend, &return_count, sizeof(return_count));
+
+  while (return_count > 0)
+    {
+      duplicate_flag = 0;
+
+      sock_read(backend, &gid, sizeof(gid));
+
+      for (index = 0; index < numgids_orig; index++)
+	if (gid == lookup_data->gid_array[index])
+	  duplicate_flag = 1;
+	
+      if ((!duplicate_flag) && (lookup_data->numgids < lookup_data->maxgids))
+	lookup_data->gid_array[lookup_data->numgids++] = gid;
+      
+      return_count--;
+    }
+
+  if (lookup_data->numgids == lookup_data->maxgids)
+    return NSS_SUCCESS;
+  else
+    return NSS_NOTFOUND;
+}
+				     
 nss_status_t _nss_dce_group_destr(dce_backend_ptr_t backend, void *dummy)
 {
   TRACE("nss_dce_group.group_destr: called\n");
@@ -292,7 +357,8 @@ static dce_backend_op_t group_ops[] = {
 	_nss_dce_setgrent,
 	_nss_dce_getgrent,
 	_nss_dce_getgrnam,
-	_nss_dce_getgrgid
+	_nss_dce_getgrgid,
+	_nss_dce_getgroupsbymember
 };
 
 nss_backend_t *_nss_dce_group_constr(const char *dummy1, const char *dummy2,

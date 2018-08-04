@@ -1,0 +1,23 @@
+#!/bin/sh
+#
+# S15-80nss_dced
+# 
+# DCE Naming Services for Solaris
+#
+
+case "$1" in
+'start')
+  if [ -x /usr/sbin/nss_dced ] ; then
+    echo "Starting DCE naming services daemon."
+    /usr/sbin/nss_dced
+    fi
+  ;;
+'stop')
+  PID=`cat /opt/dcelocal/var/security/.nss_dced.pid`
+  if [ "${PID}" != "" ] ; then
+    kill ${PID}
+  fi
+  ;;
+*)
+  echo "Usage: $0 {start|stop}"
+esac

@@ -3,17 +3,21 @@
  *
  * Paul Henson <henson@acm.org>
  *
- * Copyright (c) 1997 Paul Henson -- see COPYRIGHT file for details
+ * Copyright (c) 1997,1998 Paul Henson -- see COPYRIGHT file for details
  *
  */
 
 #include <stdio.h>
+#include <syslog.h>
 #include <sys/types.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <pwd.h>
+#include <time.h>
 #include <dce/binding.h>
 #include <dce/acct.h>
 #include <dce/pgo.h>
@@ -23,17 +27,113 @@
 #include "nss_dced_protocol.h"
 
 #ifdef DEBUG
-
-static int debug = 0;
-#define TRACE(X...) if (debug) fprintf(stderr, X)
-
+#define syslog_d(X...) syslog(LOG_DEBUG, X);
 #else
-
-#define TRACE(X...)
-
+#define syslog_d(X...)
 #endif
 
+pid_t child_pid = -1;
+
+int clean_up(int signal)
+{
+  syslog(LOG_NOTICE, "received SIGHUP or SIGTERM. Killing child and exiting.");
+  if (child_pid > 0)
+    kill(child_pid, SIGTERM);
+  exit(0);
+}
+
 int main(int argc, char **argv)
+{
+  time_t start_time;
+  int fail_count = 0;
+  
+  openlog("nss_dced", LOG_PID, LOG_DAEMON);
+
+  syslog_d("initializing.");
+  
+  switch(fork())
+    {
+      case 0:
+	syslog_d("successfully detached.");
+	break;
+
+      case -1:
+	syslog(LOG_ERR, "fork failed - %m.");
+	syslog(LOG_NOTICE, "failed to start. No naming services available!");
+	exit(1);
+	break;
+	
+      default:
+	syslog_d("child spawned. Exiting.");
+	exit(0);
+	break;
+    }
+  
+  if (setsid() == -1)
+    {
+      syslog(LOG_ERR, "setsid failed - %m.");
+      syslog(LOG_NOTICE, "failed to start. No naming services available!");
+      exit(1);
+    }
+
+  {
+    FILE *pidfile;
+
+    if ((pidfile = fopen(NSS_DCED_PIDFILE, "w")) != NULL)
+      {
+	fprintf(pidfile, "%d\n", getpid());
+	fclose(pidfile);
+      }
+    else
+      {
+	syslog(LOG_ERR, "open of pidfile %s failed - %m.", NSS_DCED_PIDFILE);
+	syslog(LOG_NOTICE, "failed to log pid.");
+      }
+  }
+
+  start_time = time(NULL);
+
+  syslog_d("entering child maintenance loop.");
+  while (1) {
+    signal(SIGHUP, SIG_DFL);
+    signal(SIGTERM, SIG_DFL);
+    switch(child_pid = fork())
+      {
+        case 0:
+	  syslog_d("calling main request processing routine.");
+	  nss_dced_main();
+	  break;
+	  
+        case -1:
+	  syslog(LOG_ERR, "unable to fork child - %m.");
+	  break;
+
+        default:
+	  signal(SIGHUP, (void *)clean_up);
+	  signal(SIGTERM, (void *)clean_up);
+	  if (waitpid(child_pid, NULL, 0) == child_pid)
+	    syslog(LOG_NOTICE, "child exited.");
+	  else
+	    syslog(LOG_NOTICE, "abnormal child termination.");
+	  break;
+      }
+
+    if ((time(NULL) - start_time) > 30)
+      {
+	syslog_d("resetting failure count.");
+	fail_count = 0;
+	start_time = time(NULL);
+      }
+    
+    fail_count++;
+    if (fail_count > 10) {
+      syslog(LOG_NOTICE, "too many failures. Sleeping.");
+      sleep(60);
+    }
+  }
+}
+
+void nss_dced_main()
 {
   int sock;
   int request_sock;
@@ -41,63 +141,57 @@ int main(int argc, char **argv)
   pthread_t request_thread;
   struct rlimit fdlimit;
 
-#ifdef DEBUG
-  if (argc > 1)
-    debug = !strcmp(argv[1], "-d");
-#endif
-  
-  TRACE("nss_dced: initializing\n");
-
+  syslog_d("increasing file descriptor limit.");
   getrlimit(RLIMIT_NOFILE, &fdlimit);
   fdlimit.rlim_cur = fdlimit.rlim_max;
   setrlimit(RLIMIT_NOFILE, &fdlimit);
 
+  
   if ((sock = socket(AF_UNIX, SOCK_STREAM, PF_UNSPEC)) < 0)
     {
-      TRACE("nss_dced: unable to create socket, exiting\n");
-      perror("socket");
+      syslog(LOG_ERR, "error creating socket - %m.");
+      syslog(LOG_NOTICE, "exiting due to socket creation failure.");
       exit(1);
     }
-
+  
   unlink(NSS_DCED_SOCKETPATH);
-
+  
   name.sun_family = AF_UNIX;
   strcpy(name.sun_path, NSS_DCED_SOCKETPATH);
-
+  
   if (bind(sock, (struct sockaddr *)&name, sizeof(struct sockaddr_un)))
     {
-      TRACE("nss_dced: unable to bind socket, exiting\n");
-      perror("bind");
+      syslog(LOG_ERR, "error binding socket - %m.");
+      syslog(LOG_NOTICE, "exiting due to socket bind failure.");
       exit(1);
     }
-
+  
   if(listen(sock, 5))
     {
-      TRACE("nss_dced: unable to listen to socket, exiting\n");
-      perror("listen");
+      syslog(LOG_ERR, "error listening to socket - %m.");
+      syslog(LOG_NOTICE, "exiting due to socket listen failure.");
       exit(1);
     }
-
-  TRACE("nss_dced: entering service request loop\n");
+  
+  syslog_d("entering service request loop.");
   while(1)
     {
-      TRACE("nss_dced: waiting for request connection\n");
+      syslog_d("waiting for request connection.");
       if ((request_sock = accept(sock, NULL, 0)) < 0)
-        {
-          TRACE("nss_dced: error accepting request connection, exiting\n");
-          perror("accept");
-          exit(1);
-        }
-      TRACE("nss_dced: accepted request %d\n", request_sock);
-      TRACE("nss_dced: creating thread to handle request\n");
+	{
+	  syslog(LOG_ERR, "error in accept - %m.");
+	  syslog(LOG_NOTICE, "exiting due to accept failure.");
+	  exit(1);
+	}
+      syslog_d("creating thread to handle new request %d.", request_sock);
       if(pthread_create(&request_thread, pthread_attr_default, handle_request,
-                        (pthread_addr_t) request_sock))
-        {
-          TRACE("nss_dced: error creating handler thread, exiting\n");
-          perror("pthread_create");
-          exit(1);
-        }
-      TRACE("nss_dced: detaching from handler thread\n");
+			(pthread_addr_t) request_sock))
+	{
+	  syslog(LOG_ERR, "error in pthread_create - %m.");
+	  syslog(LOG_NOTICE, "exiting due to pthread creation failure.");
+	  exit(1);
+	}
+      syslog_d("detaching from handler thread.");
       pthread_detach(&request_thread);
     }
 }
@@ -112,79 +206,88 @@ pthread_addr_t handle_request(pthread_addr_t arg)
   uid_t uid;
   gid_t gid;
 
-  TRACE("nss_dced.handle_request(%d): entering request loop\n", sock);
+  syslog_d("handle_request(%d): entering request loop.", sock);
   while (read(sock, &request, sizeof(request)))
     {
       switch (request)
         {
-        case NSS_DCED_GETPWNAM:
-          TRACE("nss_dced.handle_request(%d): received NSS_DCED_GETPWNAM\n", sock);
-          read(sock, &string_length, sizeof(string_length));
-	  if (string_length > sec_rgy_name_t_size) string_length = sec_rgy_name_t_size;
-          read(sock, pname, string_length);
-          sec_rgy_cursor_reset(&account_cursor);
-          TRACE("nss_dced.handle_request(%d): lookup for username %s\n", sock, pname);
-          nss_dced_acct_lookup(&account_cursor, sock, pname);
-          break;
+          case NSS_DCED_GETPWNAM:
+	    syslog_d("handle_request(%d): received NSS_DCED_GETPWNAM.", sock);
+	    read(sock, &string_length, sizeof(string_length));
+	    if (string_length > sec_rgy_name_t_size) string_length = sec_rgy_name_t_size;
+	    read(sock, pname, string_length);
+	    sec_rgy_cursor_reset(&account_cursor);
+	    syslog_d("handle_request(%d): lookup for username %s.", sock, pname);
+	    nss_dced_acct_lookup(&account_cursor, sock, pname);
+	    break;
+	    
+          case NSS_DCED_GETPWUID:
+	    syslog_d("handle_request(%d): received NSS_DCED_GETPWUID.", sock);
+	    read(sock, &uid, sizeof(uid));
+	    sec_rgy_cursor_reset(&account_cursor);
+	    syslog_d("handle_request(%d): lookup for UID %d.", sock, uid);
+	    nss_dced_getpwuid(&account_cursor, sock, uid);
+	    break;
+	    
+          case NSS_DCED_SETPWENT:
+	    syslog_d("handle_request(%d): received NSS_DCED_SETPWENT.", sock);
+	    sec_rgy_cursor_reset(&account_cursor);
+	    response = NSS_DCED_SUCCESS;
+	    write(sock, &response, sizeof(response));
+	    break;
+	    
+          case NSS_DCED_GETPWENT:
+	    syslog_d("handle_request(%d): received NSS_DCED_GETPWENT.", sock);
+	    nss_dced_acct_lookup(&account_cursor, sock, "");
+	    break;
+          
+          case NSS_DCED_ENDPWENT:
+	    syslog_d("handle_request(%d): received NSS_DCED_ENDPWENT.", sock);
+	    break;
+          
+          case NSS_DCED_GETGRNAM:
+	    syslog_d("handle_request(%d): received NSS_DCED_GETGRNAM.", sock);
+	    read(sock, &string_length, sizeof(string_length));
+	    if (string_length > sec_rgy_name_t_size) string_length = sec_rgy_name_t_size;
+	    read(sock, pname, string_length);
+	    syslog_d("handle_request(%d): lookup for groupname %s.", sock, pname);
+	    nss_dced_getgrnam(sock, pname);
+	    break;
+	    
+          case NSS_DCED_GETGRGID:
+	    syslog_d("handle_request(%d): received NSS_DCED_GETGRGID.", sock);
+	    read(sock, &gid, sizeof(gid));
+	    syslog_d("handle_request(%d): lookup for GID %d.", sock, gid);
+	    nss_dced_getgrgid(sock, gid);
+	    break;
 
-        case NSS_DCED_GETPWUID:
-          TRACE("nss_dced.handle_request(%d): received NSS_DCED_GETPWUID\n", sock);
-          read(sock, &uid, sizeof(uid));
-          sec_rgy_cursor_reset(&account_cursor);
-          TRACE("nss_dced.handle_request(%d): lookup for UID %d\n", sock, uid);
-          nss_dced_getpwuid(&account_cursor, sock, uid);
-          break;
+          case NSS_DCED_SETGRENT:
+	    syslog_d("handle_request(%d): received NSS_DCED_SETGRENT.", sock);
+	    sec_rgy_cursor_reset(&group_cursor);
+	    response = NSS_DCED_SUCCESS;
+	    write(sock, &response, sizeof(response));
+	    break;
+	    
+          case NSS_DCED_GETGRENT:
+	    syslog_d("handle_request(%d): received NSS_DCED_GETGRENT.", sock);
+	    nss_dced_getgrent(&group_cursor, sock);
+	    break;
+          
+          case NSS_DCED_ENDGRENT:
+	    syslog_d("handle_request(%d): received NSS_DCED_ENDGRENT.", sock);
+	    break;
 
-        case NSS_DCED_SETPWENT:
-          TRACE("nss_dced.handle_request(%d): received NSS_DCED_SETPWENT\n", sock);
-          sec_rgy_cursor_reset(&account_cursor);
-          response = NSS_DCED_SUCCESS;
-          write(sock, &response, sizeof(response));
-          break;
-          
-        case NSS_DCED_GETPWENT:
-          TRACE("nss_dced.handle_request(%d): received NSS_DCED_GETPWENT\n", sock);
-          nss_dced_acct_lookup(&account_cursor, sock, "");
-          break;
-          
-        case NSS_DCED_ENDPWENT:
-          TRACE("nss_dced.handle_request(%d): received NSS_DCED_ENDPWENT\n", sock);
-          break;
-          
-        case NSS_DCED_GETGRNAM:
-          TRACE("nss_dced.handle_request(%d): received NSS_DCED_GETGRNAM\n", sock);
-          read(sock, &string_length, sizeof(string_length));
-	  if (string_length > sec_rgy_name_t_size) string_length = sec_rgy_name_t_size;
-          read(sock, pname, string_length);
-          TRACE("nss_dced.handle_request(%d): lookup for groupname %s\n", sock, pname);
-          nss_dced_getgrnam(sock, pname);
-          break;
-
-        case NSS_DCED_GETGRGID:
-          TRACE("nss_dced.handle_request(%d): received NSS_DCED_GETGRGID\n", sock);
-          read(sock, &gid, sizeof(gid));
-          TRACE("nss_dced.handle_request(%d): lookup for GID %d\n", sock, gid);
-          nss_dced_getgrgid(sock, gid);
-          break;
-
-        case NSS_DCED_SETGRENT:
-          TRACE("nss_dced.handle_request(%d): received NSS_DCED_SETGRENT\n", sock);
-          sec_rgy_cursor_reset(&group_cursor);
-          response = NSS_DCED_SUCCESS;
-          write(sock, &response, sizeof(response));
-          break;
-          
-        case NSS_DCED_GETGRENT:
-          TRACE("nss_dced.handle_request(%d): received NSS_DCED_GETGRENT\n", sock);
-          nss_dced_getgrent(&group_cursor, sock);
-          break;
-          
-        case NSS_DCED_ENDGRENT:
-          TRACE("nss_dced.handle_request(%d): received NSS_DCED_ENDGRENT\n", sock);
-          break;
+          case NSS_DCED_GETGROUPSBYMEMBER:
+	    syslog_d("handle_request(%d): received NSS_DCED_GETGROUPSBYMEMBER.", sock);
+	    read(sock, &string_length, sizeof(string_length));
+	    if (string_length > sec_rgy_name_t_size) string_length = sec_rgy_name_t_size;
+	    read(sock, pname, string_length);
+	    syslog_d("handle_request(%d): groups lookup for username %s.", sock, pname);
+	    nss_dced_getgroupsbymember(sock, pname);
+	    break;
         }
     }
-  TRACE("nss_dced.handle_request(%d): remote closed connection\n", sock);
+  syslog_d("handle_request(%d): remote closed connection.", sock);
   close(sock);
 }
 
@@ -202,7 +305,7 @@ void nss_dced_acct_lookup(sec_rgy_cursor_t *account_cursor, int sock, sec_rgy_na
   uid_t uid;
   gid_t gid;
 
-  TRACE("nss_dced.acct_lookup(%d): called for username %s\n", sock, pname);
+  syslog_d("acct_lookup(%d): called for username %s.", sock, pname);
 
   strncpy(name_key.pname, pname, sec_rgy_name_t_size);
   *name_key.gname = '\0';
@@ -215,13 +318,13 @@ void nss_dced_acct_lookup(sec_rgy_cursor_t *account_cursor, int sock, sec_rgy_na
   switch (dce_status)
     {
       case error_status_ok:
-        TRACE("nss_dced.acct_lookup(%d): returning NSS_DCED_SUCCESS\n", sock);
+        syslog_d("acct_lookup(%d): returning NSS_DCED_SUCCESS.", sock);
         response = NSS_DCED_SUCCESS;
         write(sock, &response, sizeof(response));
         break;
 
       case sec_rgy_server_unavailable:
-        TRACE("nss_dced.acct_lookup(%d): returning NSS_DCED_UNAVAIL\n", sock);
+        syslog_d("acct_lookup(%d): returning NSS_DCED_UNAVAIL.", sock);
         response = NSS_DCED_UNAVAIL;
         write(sock, &response, sizeof(response));
         return;
@@ -229,7 +332,7 @@ void nss_dced_acct_lookup(sec_rgy_cursor_t *account_cursor, int sock, sec_rgy_na
       case sec_rgy_no_more_entries:
       case sec_rgy_object_not_found:
       default:
-        TRACE("nss_dced.acct_lookup(%d): returning NSS_DCED_NOTFOUND\n", sock);
+        syslog_d("acct_lookup(%d): returning NSS_DCED_NOTFOUND.", sock);
         response = NSS_DCED_NOTFOUND;
         write(sock, &response, sizeof(response));
         return;
@@ -268,7 +371,7 @@ void nss_dced_getpwuid(sec_rgy_cursor_t *account_cursor, int sock, uid_t uid)
   error_status_t dce_status;
   nss_dced_message_t response;
 
-  TRACE("nss_dced.getpwuid(%d): called for UID %d\n", sock, uid);
+  syslog_d("getpwuid(%d): called for UID %d.", sock, uid);
   
   sec_rgy_pgo_unix_num_to_name(sec_rgy_default_handle, sec_rgy_domain_person,
                                uid, pgo_name, &dce_status);
@@ -279,20 +382,20 @@ void nss_dced_getpwuid(sec_rgy_cursor_t *account_cursor, int sock, uid_t uid)
 	break;
 
       case sec_rgy_server_unavailable:
-	TRACE("nss_dced.getpwuid(%d): returning NSS_DCED_UNAVAIL\n", sock);
+	syslog_d("getpwuid(%d): returning NSS_DCED_UNAVAIL.", sock);
 	response = NSS_DCED_UNAVAIL;
 	write(sock, &response, sizeof(response));
 	return;
 
       case sec_rgy_object_not_found:
       default:
-	TRACE("nss_dced.getpwuid(%d): returning NSS_DCED_NOTFOUND\n", sock);
+	syslog_d("getpwuid(%d): returning NSS_DCED_NOTFOUND.", sock);
 	response = NSS_DCED_NOTFOUND;
 	write(sock, &response, sizeof(response));
 	return;
     }
 
-  TRACE("nss_dced.getpwuid(%d): calling acct_lookup for username %s\n", sock, pgo_name);
+  syslog_d("getpwuid(%d): calling acct_lookup for username %s.", sock, pgo_name);
   nss_dced_acct_lookup(account_cursor, sock, pgo_name);
 }
 
@@ -305,7 +408,7 @@ void nss_dced_getgrnam(int sock, sec_rgy_name_t pname)
   int string_length;
   gid_t gid;
 
-  TRACE("nss_dced.getgrnam(%d): called for groupname %s\n", sock, pname);
+  syslog_d("getgrnam(%d): called for groupname %s.", sock, pname);
   
   sec_rgy_cursor_reset(&group_cursor);
   sec_rgy_pgo_get_by_name(sec_rgy_default_handle, sec_rgy_domain_group, pname, &group_cursor,
@@ -314,13 +417,13 @@ void nss_dced_getgrnam(int sock, sec_rgy_name_t pname)
   switch (dce_status)
     {
       case error_status_ok:
-	TRACE("nss_dced.getgrnam(%d): returning NSS_DCED_SUCCESS\n", sock);
+	syslog_d("getgrnam(%d): returning NSS_DCED_SUCCESS.", sock);
 	response = NSS_DCED_SUCCESS;
 	write(sock, &response, sizeof(response));
 	break;
 
       case sec_rgy_server_unavailable:
-	TRACE("nss_dced.getgrnam(%d): returning NSS_DCED_UNAVAIL\n", sock);
+	syslog_d("getgrnam(%d): returning NSS_DCED_UNAVAIL.", sock);
 	response = NSS_DCED_UNAVAIL;
 	write(sock, &response, sizeof(response));
 	return;
@@ -328,7 +431,7 @@ void nss_dced_getgrnam(int sock, sec_rgy_name_t pname)
       case sec_rgy_no_more_entries:
       case sec_rgy_object_not_found:
       default:
-	TRACE("nss_dced.getgrnam(%d): returning NSS_DCED_NOTFOUND\n", sock);
+	syslog_d("getgrnam(%d): returning NSS_DCED_NOTFOUND.", sock);
 	response = NSS_DCED_NOTFOUND;
 	write(sock, &response, sizeof(response));
 	return;
@@ -351,7 +454,7 @@ void nss_dced_getgrgid(int sock, gid_t gid)
   nss_dced_message_t response;
   int string_length;
 
-  TRACE("nss_dced.getgrgid(%d): called for GID %d\n", sock, gid);
+  syslog_d("getgrgid(%d): called for GID %d.", sock, gid);
   
   sec_rgy_pgo_unix_num_to_name(sec_rgy_default_handle, sec_rgy_domain_group, gid, 
                                pgo_name, &dce_status);
@@ -359,20 +462,20 @@ void nss_dced_getgrgid(int sock, gid_t gid)
   switch (dce_status)
     {
       case error_status_ok:
-	TRACE("nss_dced.getgrnam(%d): returning NSS_DCED_SUCCESS\n", sock);
+	syslog_d("getgrnam(%d): returning NSS_DCED_SUCCESS.", sock);
 	response = NSS_DCED_SUCCESS;
 	write(sock, &response, sizeof(response));
 	break;
 
       case sec_rgy_server_unavailable:
-	TRACE("nss_dced.getgrgid(%d): returning NSS_DCED_UNAVAILn", sock);
+	syslog_d("getgrgid(%d): returning NSS_DCED_UNAVAILn", sock);
 	response = NSS_DCED_UNAVAIL;
 	write(sock, &response, sizeof(response));
 	return;
 
       case sec_rgy_object_not_found:
       default:
-	TRACE("nss_dced.getgrgid(%d): returning NSS_DCED_NOTFOUND\n", sock);
+	syslog_d("getgrgid(%d): returning NSS_DCED_NOTFOUND.", sock);
 	response = NSS_DCED_NOTFOUND;
 	write(sock, &response, sizeof(response));
 	return;
@@ -402,20 +505,20 @@ void nss_dced_getgrent(sec_rgy_cursor_t *group_cursor, int sock)
   switch (dce_status)
     {
       case error_status_ok:
-	TRACE("nss_dced.getgrent(%d): returning NSS_DCED_SUCCESS\n", sock);
+	syslog_d("getgrent(%d): returning NSS_DCED_SUCCESS.", sock);
 	response = NSS_DCED_SUCCESS;
 	write(sock, &response, sizeof(response));
 	break;
 
       case sec_rgy_server_unavailable:
-	TRACE("nss_dced.getgrent(%d): returning NSS_DCED_UNAVAIL\n", sock);
+	syslog_d("getgrent(%d): returning NSS_DCED_UNAVAIL.", sock);
 	response = NSS_DCED_UNAVAIL;
 	write(sock, &response, sizeof(response));
 	return;
 
       case sec_rgy_no_more_entries:
       default:
-	TRACE("nss_dced.getgrent(%d): returning NSS_DCED_NOTFOUND\n", sock);
+	syslog_d("getgrent(%d): returning NSS_DCED_NOTFOUND.", sock);
 	response = NSS_DCED_NOTFOUND;
 	write(sock, &response, sizeof(response));
 	return;
@@ -427,4 +530,70 @@ void nss_dced_getgrent(sec_rgy_cursor_t *group_cursor, int sock)
 
   gid = pgo_item.unix_num;
   write(sock, &gid, sizeof(gid));
+
+  return;
+}
+
+/* Snag NGROUPS_MAX */
+#include <limits.h>
+
+void nss_dced_getgroupsbymember(int sock, sec_rgy_name_t pname)
+{
+  error_status_t dce_status;
+  sec_rgy_pgo_item_t pgo_item;
+  sec_rgy_cursor_t member_cursor, pgo_cursor;
+  sec_rgy_member_t member_list[NGROUPS_MAX];
+  gid_t gid_list[NGROUPS_MAX];
+  signed32 number_members, number_supplied;
+  nss_dced_message_t response;
+  int return_count, index;
+  
+  syslog_d("getgroupsbymember(%d): called for username %s.", sock, pname);
+
+  sec_rgy_cursor_reset(&member_cursor);
+  sec_rgy_pgo_get_members(sec_rgy_default_handle, sec_rgy_domain_person, pname, &member_cursor,
+			  NGROUPS_MAX, member_list, &number_supplied, &number_members, &dce_status);
+
+  switch (dce_status)
+    {
+      case error_status_ok:
+	syslog_d("getgroupsbymember(%d): returning NSS_DCED_SUCCESS.", sock);
+	response = NSS_DCED_SUCCESS;
+	write(sock, &response, sizeof(response));
+	break;
+
+      case sec_rgy_server_unavailable:
+	syslog_d("getgroupsbymember(%d): returning NSS_DCED_UNAVAIL.", sock);
+	response = NSS_DCED_UNAVAIL;
+	write(sock, &response, sizeof(response));
+	return;
+
+      case sec_rgy_no_more_entries:
+      case sec_rgy_object_not_found:
+      default:
+	syslog_d("getgroupsbymember(%d): returning NSS_DCED_NOTFOUND.", sock);
+	response = NSS_DCED_NOTFOUND;
+	write(sock, &response, sizeof(response));
+	return;
+    }
+
+  return_count = 0;
+  for (index = 0; index < number_supplied; index++)
+    {
+      sec_rgy_cursor_reset(&pgo_cursor);
+      sec_rgy_pgo_get_by_name(sec_rgy_default_handle, sec_rgy_domain_group, member_list[index],
+			      &pgo_cursor, &pgo_item, &dce_status);
+
+      if (dce_status == error_status_ok)
+	gid_list[return_count++] = pgo_item.unix_num;
+    }
+
+  syslog_d("getgroupsbymember(%d): returning %d groups.", sock, return_count);
+
+  write(sock, &return_count, sizeof(return_count));
+
+  for (index = 0; index < return_count; index++)
+    write(sock, &gid_list[index], sizeof(gid_list[index]));
+  
+  return;
 }

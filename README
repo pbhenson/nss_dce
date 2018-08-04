@@ -1,5 +1,5 @@
-DCE Naming Services for Solaris -- Copyright (c) 1997 Paul Henson
------------------------------------------------------------------
+DCE Naming Services for Solaris -- Copyright (c) 1997,1998 Paul Henson
+----------------------------------------------------------------------
 
 Introduction
 ------------
@@ -10,17 +10,37 @@ switch architecture. It allows you to specify "dce" as a source in the
 to duplicate your security registry in local passwd and group files.
 
 
+Survey
+------
+
+Before you install nss_dce (or after, whatever), I'd appreciate it if you
+could answer a quick question.
+
+Would you be interested in having nss_dce support the shadow password calls
+(getsp*)? Supporting the shadow password interface would allow completely
+transparent use of the DCE registry for applications that only need to
+authenticate users, and don't need to acquire DCE credentials. However, you
+would need to enable return of encrypted passwords in your registry
+configuration, allowing potential dictionary attacks. Ideally, you could
+configure your registry to only give out encrypted passwords to particular
+users (for example, hosts/*/self, the identity nss_dced runs as).
+Unfortunately, the current registry configuration is all or nothing.
+
+Please send your opinion to <henson@acm.org>, to help me decide whether or
+not to spend the time implementing this functionality.
+
+
 Installation
 ------------
 
 If you wish to change the compiler used (defaults to gcc), or enable
 debugging, edit the Makefile. Turning on debugging in the daemon enables
-the -d option, which will cause the daemon to verbosely log activity to
-stderr. Turning on debugging in the shared library will generate messages
-to stderr when clients use the naming service. Please note that if you
-change the default C compiler, you will likely need to edit the Makefile
-in the nss_dce.so directory and modify the options for generating
-position independent code and shared libraries.
+verbose debugging output via syslog with priority DEBUG. Turning on
+debugging in the shared library will generate messages to stderr when
+clients use the naming service. Please note that if you change the default
+C compiler, you will likely need to edit the Makefile in the nss_dce.so
+directory and modify the options for generating position independent code
+and shared libraries.
 
 Typing "make" will compile the shared library, the daemon, and some test
 programs.
@@ -32,43 +52,28 @@ passwd and group information. For example,
   group:      files dce
 
 
-If you'd like to test the naming services before installing them system
-wide, start the daemon by hand, and add the nss_dce.so directory to
-your LD_LIBRARY_PATH. Note that you can not test the naming services
-without installing them if you are running nscd. Be sure to kill nscd
-before your test. For example,
-
-  /etc/init.d/nscd stop
-  /path/to/nss_dce-1.0/nss_dced &
-  setenv LD_LIBRARY_PATH /path/to/nss_dce-0.5/nss_dce.so:${LD_LIBRARY_PATH}
-
-
-You should now be able to use the test programs in the tests directory to
-look up passwd and group information from DCE.
-
 When you're ready to install the naming services, type "make install".
 (Note, you must be logged in as root for make install to succeed) This
-will copy nss_dced to /usr/sbin, and nss_dce.so.1 to /usr/lib. If you
-previously tested the service by running the daemon by hand, be sure to
-kill it now, and restart nscd.
+will copy nss_dced to /usr/sbin, and nss_dce.so.1 to /usr/lib. It will
+also copy S15-80nss_dced to /etc/rc3.d, which will start nss_dced at
+boot.
 
-The daemon *must* be running for the naming services to function. In
-my first release, I recommended running nss_dced as a bosserver process. At
-the time, I mistakenly thought that the bosserver ran on all DFS machines;
-however, it actually runs only on DFS server machines. While it is possible
-to run the bosserver on a client machine, it requires creating principals
-and accounts for the clients. Because of this, and the stability
-demonstrated by nss_dced at my site, I currently start nss_dced from a
-script named S15-80nss_dced in /etc/rc3.d on my client machines. On my DFS
-servers, I still run it as a bosserver process, but I decided the overhead
-to do the same on a client was too high.
+As of version 1.5, nss_dced now completely detaches from the parent process
+and functions as a true daemon. Unlike previous releases, it can not run
+via the bosserver. If you currently run nss_dced via the bosserver, you
+must remove that configuration and start nss_dced at boot via the rc3.d
+script.
 
-To add the daemon as a bosserver process, execute the following command
-(please note your DCE identity must be on the admin.bos list for the host
-for the command to succeed): 
+To help prevent failure, once nss_dced detaches from the parent process, it
+spawns a child to handle naming service requests. The original nss_dced
+process monitors the child, and spawns a new child if the original should
+die. nss_dced logs activity to syslog via the DAEMON facility, and the ERR
+and NOTICE priorities. If debugging was enabled at compile time, nss_dced
+also logs detailed debugging information at the DEBUG priority.
 
-  bos create -server /.:/hosts/hostname -process nss_dced -type simple \
-    -cmd /usr/sbin/nss_dced
+The PID of the parent nss_dced process is logged to
+/opt/dcelocal/var/security/.nss_dced.pid. If the parent receives either a
+SIGHUP or a SIGTERM, it will kill the child and exit.
 
 
 FAQs
@@ -116,6 +121,37 @@ structure?
 Changes
 -------
 
+Version 1.5
+
+     - Turned nss_dced into a true daemon. It now detaches from its parent
+       process and controlling terminal and runs in the background. Thanks
+       to Mark Horn <mhorn@funb.com> for the suggestion.
+
+     - Added support for group membership requests, allowing initgroups()
+       to function correctly. Previous versions of nss_dce failed to return
+       the supplementary group membership information, preventing
+       initialization of the group list. Thanks to Martin Arlt
+       <arlt@dik.maschinenbau.tu-darmstadt.de> for pointing out this
+       deficiency.
+
+     - Added syslog support to nss_dced, in place of previous stderr based
+       logging. nss_dced will log errors and problems via the facility
+       DAEMON and the priorities ERR and NOTICE. If debugging is enabled at
+       compile time, nss_dced will also log debugging information via the
+       priority DEBUG.
+
+     - Increased fault tolerance of nss_dced. nss_dced will now spawn a
+       child to handle naming service requests, and monitor that child
+       for failure. If the child dies or exits, nss_dced will spawn a new
+       child and log the failure. If children are respawning too rapidly,
+       nss_dced will sleep for a period to avoid causing a high system
+       load. Sending a SIGHUP or SIGTERM to the parent will cause it to
+       kill the child and exit cleanly. The parent logs its PID to
+       /opt/dcelocal/var/security/.nss_dced.pid.
+
+     - Included S15-80nss_dced script to start nss_dced at boot.
+
+
 Version 1.1
 
      - Modified DCE registry calls to use the default handle rather than
@@ -126,7 +162,7 @@ Version 1.1
 
      - Minor optimizations to code and protocol.
 
-     - New test programs that closely mirror the underlying libc calls.
+     - New test programs that more closely mirror the underlying libc calls.
 
 
 Version 1.0
