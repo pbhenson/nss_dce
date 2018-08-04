@@ -1,0 +1,58 @@
+#!/bin/sh
+#
+# nss_dced      start/stop nss_dced
+#
+# chkconfig: 345 24 31
+# description: nss_dced provides DCE naming services integration
+# processname: /usr/sbin/nss_dced
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+# Source networking configuration and check that networking is up.
+if [ -f /etc/sysconfig/network ] ; then
+        . /etc/sysconfig/network
+        [ ${NETWORKING} = "no" ] && exit 0
+fi
+
+[ -x /usr/sbin/nss_dced ] || exit 0
+
+case "$1" in
+    start)
+	echo -n $"Starting nss_dced: "
+	if [ -f /opt/dcelocal/etc/nss_dced.conf ] ; then
+		OPTIONS=`cat /opt/dcelocal/etc/nss_dced.conf`
+	fi
+	daemon /usr/sbin/nss_dced $OPTIONS
+	RETVAL=$?
+	echo
+        ;;
+    stop)
+	if [ -f /var/run/nss_dced.pid ] ; then
+		echo -n $"Stopping nss_dced: "
+		kill `cat /var/run/nss_dced.pid`
+		echo_success
+		echo
+		RETVAL=0
+	fi
+        ;;
+    status)
+        status /usr/sbin/nss_dced
+        RETVAL=$?
+        ;;
+    restart|reload)
+        /etc/init.d/nss_dced stop
+	/etc/init.d/nss_dced start
+        ;;
+    condrestart)
+	if [ -f /var/run/nss_dced.pid ] ; then
+		/etc/init.d/nss_dced reload
+	fi
+        ;;
+    *)
+        echo $"Usage: $0 {start|stop|restart|condrestart|reload|status}"
+        RETVAL=1
+esac
+
+exit $RETVAL
+

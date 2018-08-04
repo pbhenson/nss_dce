@@ -1,18 +1,14 @@
 /* 
- * DCE Naming Services for Solaris
+ * DCE Naming Services for Solaris/Linux
  *
  * Paul Henson <henson@acm.org>
  *
- * Copyright (c) 1997-2000 Paul Henson -- see COPYRIGHT file for details
+ * Copyright (c) 1997-2002 Paul Henson -- see COPYRIGHT file for details
  *
  */
 
 #ifndef NSS_DCED_H
 #define NSS_DCED_H
-
-#ifndef NSS_DCED_PIDFILE
-#define NSS_DCED_PIDFILE "/opt/dcelocal/var/security/.nss_dced.pid"
-#endif
 
 /* default lifetime (in seconds) of a password, used only if registry policy lookup fails */
 #define NSS_DCED_PASSWD_LIFETIME 0  /* no password expiration */

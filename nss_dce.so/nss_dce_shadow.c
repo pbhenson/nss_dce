@@ -3,7 +3,7 @@
  *
  * Paul Henson <henson@acm.org>
  *
- * Copyright (c) 1997-2000 Paul Henson -- see COPYRIGHT file for details
+ * Copyright (c) 1997-2002 Paul Henson -- see COPYRIGHT file for details
  *
  */
 
@@ -55,14 +55,9 @@ nss_status_t _nss_dce_setspent(dce_backend_ptr_t backend, void *data)
 	return NSS_UNAVAIL;
     }
   
-#ifdef NO_GETSPENT
-  TRACE("nss_dce_shadow.setspent: sequential lookups disabled, returning NSS_SUCCESS\n");
-  return NSS_SUCCESS;
-#else
   _nss_dce_request(backend, NSS_DCED_SETSPENT);
 
   return _nss_dce_read_response(backend, data, _nss_dce_null_entry_reader);
-#endif
 }
 
 nss_status_t _nss_dce_getspent(dce_backend_ptr_t backend, void *data)
@@ -76,14 +71,9 @@ nss_status_t _nss_dce_getspent(dce_backend_ptr_t backend, void *data)
 	return NSS_UNAVAIL;
     }
   
-#ifdef NO_GETSPENT
-  TRACE("nss_dce_shadow.setspent: sequential lookups disabled, returning NSS_NOTFOUND\n");
-  return NSS_NOTFOUND;
-#else
   _nss_dce_request(backend, NSS_DCED_GETSPENT);
   
   return _nss_dce_read_response(backend, data, _nss_dce_shadow_entry_reader);
-#endif
 }
 
 nss_status_t _nss_dce_endspent(dce_backend_ptr_t backend, void *data)

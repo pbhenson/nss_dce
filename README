@@ -1,27 +1,27 @@
-DCE Naming Services for Solaris -- Copyright (c) 1997-2000 Paul Henson
-----------------------------------------------------------------------
+DCE Naming Services for Solaris/Linux version 3.0
+-------------------------------------------------
 
 Introduction
 ------------
 
-nss_dce is a package that integrates DCE into the Solaris naming services
-switch architecture. It allows you to specify "dce" as a source in the
-/etc/nsswitch.conf file for passwd, shadow and group lookups, removing the
-need to duplicate your security registry in local passwd and group files.
+nss_dce is a package that integrates DCE into the naming services switch
+architecture under Solaris/Linux. It allows you to specify "dce" as a
+source in the /etc/nsswitch.conf file for passwd, shadow and group
+lookups, removing the need to duplicate your security registry in local
+passwd and group files.
 
 
 Installation
 ------------
 
-If you wish to change the compiler used (defaults to gcc), enable
-debugging, enable sequential passwd/shadow/group lookups, or disable
-password override support, edit the Makefile. Turning on debugging
-in the daemon enables verbose debugging output via syslog with priority
-DEBUG. Turning on debugging in the shared library will generate messages
-to stderr when clients use the naming service. Please note that if you
-change the default C compiler, you will likely need to edit the Makefile
-in the nss_dce.so directory and modify the options for generating
-position independent code and shared libraries.
+If you wish to change the compiler used (defaults to gcc) or enable
+debugging, edit the Makefile. Turning on debugging in the daemon enables
+verbose debugging output via syslog with priority DEBUG. Turning on
+debugging in the shared library will generate messages to stderr when
+clients use the naming service. Please note that if you change the default
+C compiler under Solaris, you will likely need to edit the Makefile in the
+nss_dce.so directory and modify the options for generating position
+independent code and shared libraries.
 
 Typing "make" will compile the shared library, the daemon, and some test
 programs.
@@ -30,35 +30,53 @@ Modify your /etc/nsswitch.conf file to include "dce" as a source for
 passwd and group information. For example,
 
   passwd:     files dce
+  shadow:     files dce   (Linux only)
   group:      files dce
 
 
 When you're ready to install the naming services, type "make install".
-Note: you must be logged in as root for make install to succeed. This
-will copy nss_dced to /usr/sbin, and nss_dce.so.1 to /usr/lib. Note:
-this will remove Transarc's existing /usr/lib/nss_dce.so.1 symlink,
-which must be replaced if you want to reenable Transarc's bundled naming
-services integration. It will also copy S15-80nss_dced to /etc/rc3.d,
-which will start nss_dced at boot.
+Note: you must be logged in as root for make install to succeed. This will
+copy nss_dced to /usr/sbin. Under Solaris, it will copy nss_dce.so.1 to
+/usr/lib. Note: this will remove Transarc's existing /usr/lib/nss_dce.so.1
+symlink, which must be replaced if you want to reenable Transarc's bundled
+naming services integration. Under Linux, it will copy libnss_dce.so.2 to
+/lib, and create a symlink to it from /usr/lib. It will also copy an
+appropriate init script to /etc/init.d. Under Solaris, the appropriate
+symlinks will be created to automatically start/stop nss_dced. Under
+Linux, chkconfig will be called to generate appropriate symlinks.
 
-To help prevent failure, once nss_dced detaches from the parent process, it
-spawns a child to handle naming service requests. The original nss_dced
+To help prevent failure, once nss_dced detaches from the parent process,
+it spawns a child to handle naming service requests. The original nss_dced
 process monitors the child, and spawns a new child if the original should
 die. nss_dced logs activity to syslog via the DAEMON facility, and the ERR
 and NOTICE priorities. If debugging was enabled at compile time, nss_dced
 also logs detailed debugging information at the DEBUG priority.
 
-The PID of the parent nss_dced process is logged to
-/opt/dcelocal/var/security/.nss_dced.pid. If the parent receives either a
-SIGHUP or a SIGTERM, it will kill the child and exit.
+The PID of the parent nss_dced process is logged to /var/run/nss_dced.pid.
+If the parent receives either a SIGHUP or a SIGTERM, it will kill the
+child and exit.
+
+By default, sequential lookups of password, group and shadow information
+are disabled for performance reasons, and the password override file
+/opt/dcelocal/etc/passwd_override is respected. Sequential lookups can be
+enabled and/or password overrides can be disabled via command-line
+options. Typically, the DFS PAG requires one group entry slot, and nss_dced
+will reserve one slot by default. If the PAG under your operating system
+is not stored in a group slot or you are acquiring group information
+from additional sources, you can specify the number of group slots to
+reserve. See the man page for further details.
+
+It is recommended that the naming services cache daemon (nscd) be used
+to increase performance. This service runs by default under Solaris,
+but is disabled by default under Linux. Depending on the size of your
+cell, you might want to consider tuning the cache configuration.
 
 
 Shadow Support Details
 ----------------------
 
-Version 2.5 of nss_dce now supports the getsp* naming service functions.
-These functions return data in the following structure, as defined in
-shadow.h:
+nss_dce supports the getspnam/getspent naming service functions. These
+functions return data in the following structure, as defined in shadow.h:
 
           struct spwd{
                   char *sp_namp;          /* login name */
@@ -116,11 +134,25 @@ support for applications that authenticate via the shadow password
 interface. However, enabling return of hashed passwords from the registry
 will allow any user to acquire them through getsp* calls as well as
 through rgy_edit, dcecp, or direct use of the DCE security API. Generally,
-this has undesirable security implications. 
+this has undesirable security implications.
 
 
 Changes
 -------
+
+Version 3.0
+
+     - Added support for Linux.
+
+     - Converted most compile-time options to run-time options, to better
+       support binary distributions.
+
+     - Delete nss_dced.pid file on daemon exit.
+
+     - Added man page.
+
+     - Revamped initialization scripts.
+
 
 Version 2.6
 

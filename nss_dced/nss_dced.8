@@ -1,0 +1,60 @@
+.TH NSS_DCED 8 "3.0" "nss_dced"
+.SH NAME
+nss_dced \- DCE naming services daemon
+.SH SYNOPSIS
+.B nss_dced
+[-hopgs] [-f <pidfile>] [-r <number>]
+.SH DESCRIPTION
+nss_dced is a daemon that provides DCE naming services integration.
+It is typically started automatically at boot by an appropriate
+initialization script. If the file /opt/dcelocal/etc/nss_dced.conf
+exists, command-line options will be read from it by the script.
+The file should consist of a single line as would have been typed
+when starting it by hand.
+.SH OPTIONS
+.TP 8
+-h
+Print usage summary
+.TP 8
+-o
+Disable password override application
+.TP 8
+-p
+Enable sequential password lookups
+.TP 8
+-g
+Enable sequential group lookups
+.TP 8
+-s
+Enable sequential shadow lookups
+.TP 8
+-f <pidfile>
+Store pid in <pidfile>
+.TP 8
+-r <number>
+Reserve <number> of group slots
+.SH FILES
+/opt/dcelocal/etc/nss_dced.conf contains command-line options
+supplied to the daemon when started by the initialization script.
+.SH NOTES
+Sequential lookups in large cells can take a long time.
+.SH COPYRIGHT
+Copyright (c) 1997-2002 Paul Henson <henson@acm.org>
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2, or (at your option)
+any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+For a copy of the GNU General Public License, write to the Free
+Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+The GNU General Public License is, as of this writing, also available
+at http://www.gnu.org/copyleft/gpl.html
+.SH AUTHOR
+Paul Henson <henson@acm.org>

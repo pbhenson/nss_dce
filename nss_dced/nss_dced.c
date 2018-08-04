@@ -1,9 +1,9 @@
 /* 
- * DCE Naming Services for Solaris
+ * DCE Naming Services for Solaris/Linux
  *
  * Paul Henson <henson@acm.org>
  *
- * Copyright (c) 1997-2000 Paul Henson -- see COPYRIGHT file for details
+ * Copyright (c) 1997-2002 Paul Henson -- see COPYRIGHT file for details
  *
  */
 
@@ -19,15 +19,13 @@
 #include <pwd.h>
 #include <shadow.h>
 #include <time.h>
+#include <limits.h>
 #include <dce/binding.h>
 #include <dce/acct.h>
 #include <dce/pgo.h>
 #include <dce/secsts.h>
 #include <dce/pthread.h>
-
-#ifdef OVERRIDE
 #include <dce/override.h>
-#endif
 
 #include "nss_dced.h"
 #include "nss_dced_protocol.h"
@@ -38,21 +36,88 @@
 #define syslog_d(X...)
 #endif
 
-pid_t child_pid = -1;
+static pid_t child_pid = -1;
+static int override = 1;
+static int pwd_seq = 0;
+static int grp_seq = 0;
+static int shadow_seq = 0;
+static char *pidpath = "/var/run/nss_dced.pid";
+static int reserved = 1;
 
 int clean_up(int signal)
 {
   syslog(LOG_NOTICE, "received SIGHUP or SIGTERM. Killing child and exiting.");
   if (child_pid > 0)
     kill(child_pid, SIGTERM);
+  unlink(pidpath);
   exit(0);
+}
+
+void usage()
+{
+  fprintf(stderr, "Usage: nss_dced [-hopgs] [-f <pidfile>] [-r <number>]\n");
+  fprintf(stderr, "\n");
+  fprintf(stderr, "       Options:\n");
+  fprintf(stderr, "                 -h   Print this help information\n");
+  fprintf(stderr, "                 -o   Disable password override application\n");
+  fprintf(stderr, "                 -p   Enable sequential password lookups\n");
+  fprintf(stderr, "                 -g   Enable sequential group lookups\n");
+  fprintf(stderr, "                 -s   Enable sequential shadow lookups\n");
+  fprintf(stderr, "                 -f   Store pid in <pidfile>\n");
+  fprintf(stderr, "                 -r   Reserve <number> of group slots\n");
+  fprintf(stderr, "\n");
+  fprintf(stderr, "Copyright (c) 1997-2002 Paul Henson <henson@acm.org>\n");
+  fprintf(stderr, "\n");
+  fprintf(stderr, "This program is free software; you can redistribute it and/or modify\n");
+  fprintf(stderr, "it under the terms of the GNU General Public License as published by\n");
+  fprintf(stderr, "the Free Software Foundation; either version 2, or (at your option)\n");
+  fprintf(stderr, "any later version.\n");
+  fprintf(stderr, "\n");
+  fprintf(stderr, "This program is distributed in the hope that it will be useful,\n");
+  fprintf(stderr, "but WITHOUT ANY WARRANTY; without even the implied warranty of\n");
+  fprintf(stderr, "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n");
+  fprintf(stderr, "GNU General Public License for more details.\n");
+  fprintf(stderr, "\n");
+  fprintf(stderr, "For a copy of the GNU General Public License, write to the Free\n");
+  fprintf(stderr, "Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.\n");
+  fprintf(stderr, "\n");
+  fprintf(stderr, "The GNU General Public License is, as of this writing, also available\n");
+  fprintf(stderr, "at http://www.gnu.org/copyleft/gpl.html\n");
+
+  exit(1);
 }
 
 int main(int argc, char **argv)
 {
   time_t start_time;
   int fail_count = 0;
-  
+  extern char *optarg;
+  extern int opterr;
+  int arg;
+
+  opterr = 0;
+
+  while ((arg = getopt(argc, argv, "opgsf:r:h")) != EOF)
+    switch(arg)
+      {
+        case 'o': override = 0; break;
+        case 'p': pwd_seq = 1; break;
+        case 'g': grp_seq = 1; break;
+        case 's': shadow_seq = 1; break;
+        case 'f': pidpath = optarg; break;
+	  
+        case 'r': reserved = atoi(optarg);
+	          if (reserved < 0 || reserved > NGROUPS_MAX)
+		    {
+		      fprintf(stderr, "invalid number of reserved groups\n\n");
+		      usage();
+		    }
+		  break;
+		  
+        case 'h':
+        default: usage();
+      }
+	  
   openlog("nss_dced", LOG_PID, LOG_DAEMON);
 
   syslog_d("initializing.");
@@ -85,14 +150,14 @@ int main(int argc, char **argv)
   {
     FILE *pidfile;
 
-    if ((pidfile = fopen(NSS_DCED_PIDFILE, "w")) != NULL)
+    if ((pidfile = fopen(pidpath, "w")) != NULL)
       {
 	fprintf(pidfile, "%d\n", getpid());
 	fclose(pidfile);
       }
     else
       {
-	syslog(LOG_ERR, "open of pidfile %s failed - %m.", NSS_DCED_PIDFILE);
+	syslog(LOG_ERR, "open of pidfile %s failed - %m.", pidpath);
 	syslog(LOG_NOTICE, "failed to log pid.");
       }
   }
@@ -181,6 +246,13 @@ void nss_dced_main()
       syslog(LOG_NOTICE, "exiting due to socket bind failure.");
       exit(1);
     }
+
+  if (chmod(NSS_DCED_SOCKETPATH, 0777))
+    {
+      syslog(LOG_ERR, "error chmod socket - %m.");
+      syslog(LOG_NOTICE, "exiting due to socket chmod failure.");
+      exit(1);
+    }
   
   if(listen(sock, 5))
     {
@@ -254,7 +326,14 @@ pthread_addr_t handle_request(pthread_addr_t arg)
 	    
           case NSS_DCED_GETPWENT:
 	    syslog_d("handle_request(%d): received NSS_DCED_GETPWENT.", sock);
-	    nss_dced_passwd_lookup(&passwd_cursor, sock, "");
+	    if (pwd_seq)
+	      nss_dced_passwd_lookup(&passwd_cursor, sock, "");
+	    else
+	      {
+		syslog_d("handle_request(%d): sequential lookups disabled, returning NSS_DCED_NOTFOUND.", sock);
+		response = NSS_DCED_NOTFOUND;
+		write(sock, &response, sizeof(response));
+	      }
 	    break;
           
           case NSS_DCED_ENDPWENT:
@@ -286,7 +365,14 @@ pthread_addr_t handle_request(pthread_addr_t arg)
 	    
           case NSS_DCED_GETGRENT:
 	    syslog_d("handle_request(%d): received NSS_DCED_GETGRENT.", sock);
-	    nss_dced_getgrent(&group_cursor, sock);
+	    if (grp_seq)
+	      nss_dced_getgrent(&group_cursor, sock);
+	    else
+	      {
+		syslog_d("handle_request(%d): sequential lookups disabled, returning NSS_DCED_NOTFOUND.", sock);
+		response = NSS_DCED_NOTFOUND;
+		write(sock, &response, sizeof(response));
+	      }
 	    break;
           
           case NSS_DCED_ENDGRENT:
@@ -321,7 +407,14 @@ pthread_addr_t handle_request(pthread_addr_t arg)
 	    
           case NSS_DCED_GETSPENT:
 	    syslog_d("handle_request(%d): received NSS_DCED_GETSPENT.", sock);
-	    nss_dced_shadow_lookup(&shadow_cursor, sock, "");
+	    if (shadow_seq)
+	      nss_dced_shadow_lookup(&shadow_cursor, sock, "");
+	    else
+	      {
+		syslog_d("handle_request(%d): sequential lookups disabled, returning NSS_DCED_NOTFOUND.", sock);
+		response = NSS_DCED_NOTFOUND;
+		write(sock, &response, sizeof(response));
+	      }
 	    break;
           
           case NSS_DCED_ENDSPENT:
@@ -362,41 +455,40 @@ void nss_dced_passwd_lookup(sec_rgy_cursor_t *passwd_cursor, int sock, sec_rgy_n
     {
       case error_status_ok:
 
-#ifdef OVERRIDE
-	{
-	  sec_rgy_unix_passwd_buf_t override_passwd;
-	  sec_rgy_name_t override_gecos;
-	  sec_rgy_name_t override_dir;
-	  sec_rgy_name_t override_shell;
-	  sec_override_fields_t overridden_fields;
-	  error_status_t dce_status;
-	  
-	  override_get_login_info(name_key.pname, &unix_sid.person, &unix_sid.group,
-				  override_passwd, override_gecos, override_dir, override_shell,
-				  &overridden_fields, &dce_status);
-	  
-	  switch (dce_status)
-	    {
-	      case error_status_ok:
-		if (overridden_fields & sec_override_pw_gecos)
-		  strcpy(user_part.gecos, override_gecos);
+	if (override)
+	  {
+	    sec_rgy_unix_passwd_buf_t override_passwd;
+	    sec_rgy_name_t override_gecos;
+	    sec_rgy_name_t override_dir;
+	    sec_rgy_name_t override_shell;
+	    sec_override_fields_t overridden_fields;
+	    error_status_t dce_status;
+	    
+	    override_get_login_info(name_key.pname, &unix_sid.person, &unix_sid.group,
+				    override_passwd, override_gecos, override_dir, override_shell,
+				    &overridden_fields, &dce_status);
+	    
+	    switch (dce_status)
+	      {
+	        case error_status_ok:
+		  if (overridden_fields & sec_override_pw_gecos)
+		    strcpy(user_part.gecos, override_gecos);
 		
-		if (overridden_fields & sec_override_pw_dir)
-		  strcpy(user_part.homedir, override_dir);
+		  if (overridden_fields & sec_override_pw_dir)
+		    strcpy(user_part.homedir, override_dir);
+		  
+		  if (overridden_fields & sec_override_pw_shell)
+		    strcpy(user_part.shell, override_shell);
+		  
+		  break;
 		
-		if (overridden_fields & sec_override_pw_shell)
-		  strcpy(user_part.shell, override_shell);
-		
-		break;
-	       
-	      case sec_login_s_no_override_info:
-	      case sec_login_s_override_failure:
-	      case sec_login_s_ovrd_ent_not_found:
-	      default:
-		break;
-	    }
-	}
-#endif    
+	        case sec_login_s_no_override_info:
+	        case sec_login_s_override_failure:
+	        case sec_login_s_ovrd_ent_not_found:
+	        default:
+		  break;
+	      }
+	  }
 	  
 	syslog_d("passwd_lookup(%d): returning NSS_DCED_SUCCESS.", sock);
 	response = NSS_DCED_SUCCESS;
@@ -473,35 +565,34 @@ void nss_dced_shadow_lookup(sec_rgy_cursor_t *shadow_cursor, int sock, sec_rgy_n
     {
       case error_status_ok:
 
-#ifdef OVERRIDE
-	{
-	  sec_rgy_unix_passwd_buf_t override_passwd;
-	  sec_rgy_name_t override_gecos;
-	  sec_rgy_name_t override_dir;
-	  sec_rgy_name_t override_shell;
-	  sec_override_fields_t overridden_fields;
-	  error_status_t dce_status;
-	  
-	  override_get_login_info(name_key.pname, &unix_sid.person, &unix_sid.group,
-				  override_passwd, override_gecos, override_dir, override_shell,
-				  &overridden_fields, &dce_status);
-	  
-	  switch (dce_status)
-	    {
-	      case error_status_ok:
-		if (overridden_fields & sec_override_pw_passwd)
-		  strcpy(user_part.passwd, override_passwd);
+	if (override)
+	  {
+	    sec_rgy_unix_passwd_buf_t override_passwd;
+	    sec_rgy_name_t override_gecos;
+	    sec_rgy_name_t override_dir;
+	    sec_rgy_name_t override_shell;
+	    sec_override_fields_t overridden_fields;
+	    error_status_t dce_status;
+	    
+	    override_get_login_info(name_key.pname, &unix_sid.person, &unix_sid.group,
+				    override_passwd, override_gecos, override_dir, override_shell,
+				    &overridden_fields, &dce_status);
+	    
+	    switch (dce_status)
+	      {
+	        case error_status_ok:
+		  if (overridden_fields & sec_override_pw_passwd)
+		    strcpy(user_part.passwd, override_passwd);
 		
-		break;
+		  break;
 	       
-	      case sec_login_s_no_override_info:
-	      case sec_login_s_override_failure:
-	      case sec_login_s_ovrd_ent_not_found:
-	      default:
-		break;
-	    }
-	}
-#endif    
+	        case sec_login_s_no_override_info:
+	        case sec_login_s_override_failure:
+	        case sec_login_s_ovrd_ent_not_found:
+	        default:
+		  break;
+	      }
+	  }
 
 	syslog_d("shadow_lookup(%d): returning NSS_DCED_SUCCESS.", sock);
         response = NSS_DCED_SUCCESS;
@@ -722,16 +813,13 @@ void nss_dced_getgrent(sec_rgy_cursor_t *group_cursor, int sock)
   return;
 }
 
-/* Snag NGROUPS_MAX */
-#include <limits.h>
-
 void nss_dced_getgroupsbymember(int sock, sec_rgy_name_t pname)
 {
   error_status_t dce_status;
   sec_rgy_pgo_item_t pgo_item;
   sec_rgy_cursor_t member_cursor, pgo_cursor;
-  sec_rgy_member_t member_list[NGROUPS_MAX-1];
-  gid_t gid_list[NGROUPS_MAX-1];
+  sec_rgy_member_t member_list[NGROUPS_MAX-reserved];
+  gid_t gid_list[NGROUPS_MAX-reserved];
   signed32 number_members, number_supplied;
   nss_dced_message_t response;
   int return_count, index;
@@ -740,7 +828,7 @@ void nss_dced_getgroupsbymember(int sock, sec_rgy_name_t pname)
 
   sec_rgy_cursor_reset(&member_cursor);
   sec_rgy_pgo_get_members(sec_rgy_default_handle, sec_rgy_domain_person, pname, &member_cursor,
-			  NGROUPS_MAX-1, member_list, &number_supplied, &number_members, &dce_status);
+			  NGROUPS_MAX-reserved, member_list, &number_supplied, &number_members, &dce_status);
 
   switch (dce_status)
     {
