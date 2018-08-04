@@ -9,10 +9,10 @@
 all: nss_dced
 
 nss_dced: nss_dced.o
-	$(CC) -o nss_dced nss_dced.o -ldce -lthread -lsocket -lnsl -lm
+	$(CC) -o nss_dced nss_dced.o -ldce -lsocket -lnsl
 
 nss_dced.o: nss_dced.c nss_dced.h nss_dced_protocol.h
-	$(CC) $(DEBUG) $(SOCKETPATH) $(PIDFILE) -c nss_dced.c
+	$(CC) -I/usr/include/dce -D_REENTRANT $(DEBUG) $(SOCKETPATH) $(PIDFILE) -c nss_dced.c
 
 clean:
 	@rm -f nss_dced nss_dced.o *~

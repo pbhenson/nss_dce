@@ -46,6 +46,7 @@ install:
 	@chgrp bin /usr/sbin/nss_dced
 	@chmod 700 /usr/sbin/nss_dced
 	@echo "Installing nss_dce.so into /usr/lib"
+	@rm -f /usr/lib/nss_dce.so.1
 	@cp nss_dce.so/nss_dce.so.1 /usr/lib/nss_dce.so.1
 	@chown bin /usr/lib/nss_dce.so.1
 	@chgrp bin /usr/lib/nss_dce.so.1

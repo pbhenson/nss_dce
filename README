@@ -33,10 +33,12 @@ passwd and group information. For example,
 
 
 When you're ready to install the naming services, type "make install".
-(Note, you must be logged in as root for make install to succeed) This
-will copy nss_dced to /usr/sbin, and nss_dce.so.1 to /usr/lib. It will
-also copy S15-80nss_dced to /etc/rc3.d, which will start nss_dced at
-boot.
+Note: you must be logged in as root for make install to succeed. This
+will copy nss_dced to /usr/sbin, and nss_dce.so.1 to /usr/lib. Note:
+this will remove Transarc's existing /usr/lib/nss_dce.so.1 symlink,
+which must be replaced if you want to reenable Transarc's bundled naming
+services integration. It will also copy S15-80nss_dced to /etc/rc3.d,
+which will start nss_dced at boot.
 
 As of version 1.5, nss_dced now completely detaches from the parent process
 and functions as a true daemon. Unlike previous releases, it can not run
@@ -58,6 +60,25 @@ SIGHUP or a SIGTERM, it will kill the child and exit.
 
 FAQs
 ----
+
+Transarc's DCE/DFS 2.0 for Solaris 2.6 comes bundled with naming services
+integration. Why would I want to use nss_dce?
+
+     Currently, nss_dce performs noticeably better than the
+     Transarc-bundled naming services. Also, nss_dce allows you to
+     disable resource-intensive sequential lookups. Transarc recommends
+     disabling nscd when using their naming services, which prevents
+     caching, while there have been no reported problems with nscd
+     and nss_dce. Finally, nss_dce comes with source code, allowing you
+     to modify it to suit local needs.
+
+     Transarc's naming services do include some features not available
+     in nss_dce; for example, the ability to use a different cell's
+     registry for lookups. They also plan to add options to disable
+     sequential lookups and address other performance issues. However,
+     unless you need one of Transarc's features nss_dce doesn't support,
+     I'd recommend nss_dce for now.
+
 
 What's the deal with this daemon? I thought you just needed a shared library?
 
@@ -100,6 +121,13 @@ structure?
 
 Changes
 -------
+
+Version 2.0
+
+     - Updates for Solaris 2.6. This version introduces no functional
+       changes, only new compiler flags appropriate for Solaris 2.6. This
+       version should not be used with Solaris 2.5[.1].
+
 
 Version 1.6
 
@@ -192,4 +220,4 @@ Please report any bugs or feature requests to <henson@acm.org>.
 
 The latest version of nss_dce is currently available at
 
-http://www.intranet.csupomona.edu/~henson/www/projects/nss_dce/
+http://www.csupomona.edu/~henson/www/projects/nss_dce/
