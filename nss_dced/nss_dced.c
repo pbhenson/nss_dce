@@ -542,8 +542,8 @@ void nss_dced_getgroupsbymember(int sock, sec_rgy_name_t pname)
   error_status_t dce_status;
   sec_rgy_pgo_item_t pgo_item;
   sec_rgy_cursor_t member_cursor, pgo_cursor;
-  sec_rgy_member_t member_list[NGROUPS_MAX];
-  gid_t gid_list[NGROUPS_MAX];
+  sec_rgy_member_t member_list[NGROUPS_MAX-1];
+  gid_t gid_list[NGROUPS_MAX-1];
   signed32 number_members, number_supplied;
   nss_dced_message_t response;
   int return_count, index;
@@ -552,7 +552,7 @@ void nss_dced_getgroupsbymember(int sock, sec_rgy_name_t pname)
 
   sec_rgy_cursor_reset(&member_cursor);
   sec_rgy_pgo_get_members(sec_rgy_default_handle, sec_rgy_domain_person, pname, &member_cursor,
-			  NGROUPS_MAX, member_list, &number_supplied, &number_members, &dce_status);
+			  NGROUPS_MAX-1, member_list, &number_supplied, &number_members, &dce_status);
 
   switch (dce_status)
     {

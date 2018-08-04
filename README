@@ -1,4 +1,4 @@
-DCE Naming Services for Solaris -- Copyright (c) 1997,1998 Paul Henson
+DCE Naming Services for Solaris -- Copyright (c) 1997-1999 Paul Henson
 ----------------------------------------------------------------------
 
 Introduction
@@ -121,6 +121,13 @@ structure?
 
 Changes
 -------
+
+Version 2.1
+
+     - Modified nss_dced to always leave at least one group slot open for
+       the DFS PAG. Note that if groups are supplied by other naming
+       sources than DCE, you might still fill up all available group slots.
+
 
 Version 2.0
 
