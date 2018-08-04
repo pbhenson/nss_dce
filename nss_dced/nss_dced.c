@@ -24,6 +24,11 @@
 #include <dce/pgo.h>
 #include <dce/secsts.h>
 #include <dce/pthread.h>
+
+#ifdef OVERRIDE
+#include <dce/override.h>
+#endif
+
 #include "nss_dced.h"
 #include "nss_dced_protocol.h"
 
@@ -356,11 +361,48 @@ void nss_dced_passwd_lookup(sec_rgy_cursor_t *passwd_cursor, int sock, sec_rgy_n
   switch (dce_status)
     {
       case error_status_ok:
-        syslog_d("passwd_lookup(%d): returning NSS_DCED_SUCCESS.", sock);
-        response = NSS_DCED_SUCCESS;
-        write(sock, &response, sizeof(response));
-        break;
 
+#ifdef OVERRIDE
+	{
+	  sec_rgy_unix_passwd_buf_t override_passwd;
+	  sec_rgy_name_t override_gecos;
+	  sec_rgy_name_t override_dir;
+	  sec_rgy_name_t override_shell;
+	  sec_override_fields_t overridden_fields;
+	  error_status_t dce_status;
+	  
+	  override_get_login_info(name_key.pname, &unix_sid.person, &unix_sid.group,
+				  override_passwd, override_gecos, override_dir, override_shell,
+				  &overridden_fields, &dce_status);
+	  
+	  switch (dce_status)
+	    {
+	      case error_status_ok:
+		if (overridden_fields & sec_override_pw_gecos)
+		  strcpy(user_part.gecos, override_gecos);
+		
+		if (overridden_fields & sec_override_pw_dir)
+		  strcpy(user_part.homedir, override_dir);
+		
+		if (overridden_fields & sec_override_pw_shell)
+		  strcpy(user_part.shell, override_shell);
+		
+		break;
+	       
+	      case sec_login_s_no_override_info:
+	      case sec_login_s_override_failure:
+	      case sec_login_s_ovrd_ent_not_found:
+	      default:
+		break;
+	    }
+	}
+#endif    
+	  
+	syslog_d("passwd_lookup(%d): returning NSS_DCED_SUCCESS.", sock);
+	response = NSS_DCED_SUCCESS;
+	write(sock, &response, sizeof(response));
+	break;
+	
       case sec_rgy_server_unavailable:
         syslog_d("passwd_lookup(%d): returning NSS_DCED_UNAVAIL.", sock);
         response = NSS_DCED_UNAVAIL;
@@ -376,6 +418,7 @@ void nss_dced_passwd_lookup(sec_rgy_cursor_t *passwd_cursor, int sock, sec_rgy_n
         return;
     }
 
+    
   string_length = strlen(name_key.pname)+1;
   write(sock, &string_length, sizeof(string_length));
   write(sock, name_key.pname, string_length);
@@ -429,7 +472,38 @@ void nss_dced_shadow_lookup(sec_rgy_cursor_t *shadow_cursor, int sock, sec_rgy_n
   switch (dce_status)
     {
       case error_status_ok:
-        syslog_d("shadow_lookup(%d): returning NSS_DCED_SUCCESS.", sock);
+
+#ifdef OVERRIDE
+	{
+	  sec_rgy_unix_passwd_buf_t override_passwd;
+	  sec_rgy_name_t override_gecos;
+	  sec_rgy_name_t override_dir;
+	  sec_rgy_name_t override_shell;
+	  sec_override_fields_t overridden_fields;
+	  error_status_t dce_status;
+	  
+	  override_get_login_info(name_key.pname, &unix_sid.person, &unix_sid.group,
+				  override_passwd, override_gecos, override_dir, override_shell,
+				  &overridden_fields, &dce_status);
+	  
+	  switch (dce_status)
+	    {
+	      case error_status_ok:
+		if (overridden_fields & sec_override_pw_passwd)
+		  strcpy(user_part.passwd, override_passwd);
+		
+		break;
+	       
+	      case sec_login_s_no_override_info:
+	      case sec_login_s_override_failure:
+	      case sec_login_s_ovrd_ent_not_found:
+	      default:
+		break;
+	    }
+	}
+#endif    
+
+	syslog_d("shadow_lookup(%d): returning NSS_DCED_SUCCESS.", sock);
         response = NSS_DCED_SUCCESS;
         write(sock, &response, sizeof(response));
         break;

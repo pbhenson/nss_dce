@@ -9,6 +9,9 @@
 # Choose your C compiler
 CC = gcc
 
+# Comment out to disable passwd_override feature
+OVERRIDE = -DOVERRIDE
+
 # Comment out to enable sequential password lookups (getpwent)
 GETPWENT_DISABLE = -DNO_GETPWENT
 
@@ -39,7 +42,7 @@ SEQUENTIAL_DISABLE = $(GETPWENT_DISABLE) $(GETGRENT_DISABLE)
 
 all:
 	@cd nss_dce.so; make CC=$(CC) DEBUG=$(DEBUG_LIB) SOCKETPATH=$(SOCKETPATH) SEQUENTIAL_DISABLE="$(SEQUENTIAL_DISABLE)" all
-	@cd nss_dced; make CC=$(CC) DEBUG=$(DEBUG_DAEMON) SOCKETPATH=$(SOCKETPATH) PIDFILE=$(PIDFILE) all
+	@cd nss_dced; make CC=$(CC) DEBUG=$(DEBUG_DAEMON) SOCKETPATH=$(SOCKETPATH) PIDFILE=$(PIDFILE) OVERRIDE="$(OVERRIDE)" all
 	@cd tests; make CC=$(CC) all
 
 install:

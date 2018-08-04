@@ -14,13 +14,14 @@ Installation
 ------------
 
 If you wish to change the compiler used (defaults to gcc), enable
-debugging, or enable sequential passwd/shadow/group lookups, edit the
-Makefile. Turning on debugging in the daemon enables verbose debugging
-output via syslog with priority DEBUG. Turning on debugging in the shared
-library will generate messages to stderr when clients use the naming
-service. Please note that if you change the default C compiler, you will
-likely need to edit the Makefile in the nss_dce.so directory and modify the
-options for generating position independent code and shared libraries.
+debugging, enable sequential passwd/shadow/group lookups, or disable
+password override support, edit the Makefile. Turning on debugging
+in the daemon enables verbose debugging output via syslog with priority
+DEBUG. Turning on debugging in the shared library will generate messages
+to stderr when clients use the naming service. Please note that if you
+change the default C compiler, you will likely need to edit the Makefile
+in the nss_dce.so directory and modify the options for generating
+position independent code and shared libraries.
 
 Typing "make" will compile the shared library, the daemon, and some test
 programs.
@@ -118,69 +119,18 @@ through rgy_edit, dcecp, or direct use of the DCE security API. Generally,
 this has undesirable security implications. 
 
 
-FAQs
-----
-
-Transarc's DCE/DFS 2.0 for Solaris 2.6 comes bundled with naming services
-integration. Why would I want to use nss_dce?
-
-     Currently, nss_dce performs noticeably better than the
-     Transarc-bundled naming services. Also, nss_dce allows you to
-     disable resource-intensive sequential lookups. Transarc recommends
-     disabling nscd when using their naming services, which prevents
-     caching, while there have been no reported problems with nscd
-     and nss_dce. Finally, nss_dce comes with source code, allowing you
-     to modify it to suit local needs.
-
-     Transarc's naming services do include some features not available
-     in nss_dce; for example, the ability to use a different cell's
-     registry for lookups. They also plan to add options to disable
-     sequential lookups and address other performance issues. However,
-     unless you need one of Transarc's features nss_dce doesn't support,
-     I'd recommend nss_dce for now.
-
-
-What's the deal with this daemon? I thought you just needed a shared library?
-
-     The Solaris naming services switch works by mapping shared libraries
-     into the address space of the process making the naming service lookup
-     call. Unfortunately, the address space of many processes is not
-     compatible with the thread calls made by DCE. In particular, there are
-     pthread_* routines in libdce that also exist in libc. To avoid
-     conflicts, the shared library portion of this package uses only
-     innocuous socket calls to connect via a unix domain socket to the
-     daemon, which performs the actual DCE calls in its own address
-     space. This approach avoids possible conflicts, and I believe is
-     similar to the approach used by IBM in their AIX DCE integration.
-
-
-What performance impact will this have on my system?
-
-     Using DCE for naming services should not decrease your performance
-     by too great a degree as long as you are running the Solaris naming
-     service cache daemon (nscd). The first lookup of a particular name
-     or id will take slightly more time than an equivalent lookup in a
-     local passwd file (although, depending on the size of your local
-     passwd file, a DCE lookup might actually be more efficient), but
-     once the entry is in the cache, access is extremely quick. Please
-     see the manual page for nscd.conf for details on reconfiguring
-     nscd to best meet your needs.
-     
-
-Why don't the group lookup routines fill in the gr_mem section of the group
-structure?
-
-     In my DCE environment, a group could have potentially hundreds or
-     even thousands of members. The memory management needed to pass
-     such lists of group members around would be a nightmare. I don't think
-     that these calls will be used that often for determining group
-     membership, and decided not to support the gr_mem functionality of
-     the group structure. If you direly need this functionality, feel free
-     to provide feedback.
-
-
 Changes
 -------
+
+Version 2.6
+
+     - Added support for password overrides. The passwd_override
+       file is consulted for both password and shadow lookups,
+       and can override the uid, gid, password, gecos field, home
+       directory, or shell. This feature can be disabled at compile
+       time if desired. Thanks to Louis Langholtz <ldl@chpc.utah.edu>
+       for suggestion and sample code.
+        
 
 Version 2.5
 
