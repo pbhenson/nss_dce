@@ -22,8 +22,8 @@ change the default C compiler, you will likely need to edit the Makefile
 in the nss_dce.so directory and modify the options for generating
 position independent code and shared libraries.
 
-Typing "make" will compile the shared library, the daemon, and a few
-simple test programs.
+Typing "make" will compile the shared library, the daemon, and some test
+programs.
 
 Modify your /etc/nsswitch.conf file to include "dce" as a source for
 passwd and group information. For example,
@@ -53,15 +53,15 @@ previously tested the service by running the daemon by hand, be sure to
 kill it now, and restart nscd.
 
 The daemon *must* be running for the naming services to function. In
-previous releases, I recommended running nss_dced as a bosserver
-process. At the time, I mistakenly thought that the bosserver ran on all
-DFS machines; however, it actually runs only on DFS server machines. While
-it is possible to run the bosserver on a client machine, it requires
-creating principals and accounts for the clients. Because of this, and the
-stability demonstrated by nss_dced at my site, I currently start nss_dced
-from a script named S15-80nss_dced in /etc/rc3.d on my client machines. On
-my DFS servers, I still run it as a bosserver process, but I decided the
-overhead to do the same on a client was too high.
+my first release, I recommended running nss_dced as a bosserver process. At
+the time, I mistakenly thought that the bosserver ran on all DFS machines;
+however, it actually runs only on DFS server machines. While it is possible
+to run the bosserver on a client machine, it requires creating principals
+and accounts for the clients. Because of this, and the stability
+demonstrated by nss_dced at my site, I currently start nss_dced from a
+script named S15-80nss_dced in /etc/rc3.d on my client machines. On my DFS
+servers, I still run it as a bosserver process, but I decided the overhead
+to do the same on a client was too high.
 
 To add the daemon as a bosserver process, execute the following command
 (please note your DCE identity must be on the admin.bos list for the host
@@ -109,18 +109,25 @@ structure?
      such lists of group members around would be a nightmare. I don't think
      that these calls will be used that often for determining group
      membership, and decided not to support the gr_mem functionality of
-     the group structure. Feel free to complain if this lack bothers you.
-
-
-This package is great! How can I thank you?
-
-     If you find this package useful, I'd really appreciate hearing from
-     you. Send me email at <henson@acm.org> with a description of how
-     your site uses DCE, and what benefits nss_dce provides for you.
+     the group structure. If you direly need this functionality, feel free
+     to provide feedback.
 
 
 Changes
 -------
+
+Version 1.1
+
+     - Modified DCE registry calls to use the default handle rather than
+       explicitly binding to a particular server. The default handle is
+       automatically maintained by the RPC backend, and will transparently
+       rebind if the current security server fails. This should increase
+       the reliability and fault tolerance of nss_dced.
+
+     - Minor optimizations to code and protocol.
+
+     - New test programs that closely mirror the underlying libc calls.
+
 
 Version 1.0
 
@@ -138,22 +145,6 @@ Version 1.0
 Version 0.5
 
      - First publicly released version.
-
-
-Contributors
-------------
-
-Dr. Craig Rich, Intranet Project Director, Cal Poly Pomona
-
-     Vision and design of the Cal Poly Pomona Intranet Project
-     (http://www.csupomona.edu/intranet/), which inspired the creation
-     of this package.
-
-
-Mike Fitzgerald, Senior Systems Engineer, Transarc Corporation
-
-     Supplied example source code illustrating the Solaris naming
-     services switch architecture and interface.
 
 
 Feedback/Availability

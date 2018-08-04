@@ -8,7 +8,7 @@
 
 OBJECTS = nss_dce_passwd.o nss_dce_group.o
 
-CFLAGS = -fpic $(DEBUG) -D_REENTRANT -DPIC -D_TS_ERRNO -I../nss_dced
+CFLAGS = -fpic $(DEBUG) $(SOCKETPATH) -D_REENTRANT -DPIC -D_TS_ERRNO -I../nss_dced
 
 LIBS = -lsocket -lnsl -lc
 

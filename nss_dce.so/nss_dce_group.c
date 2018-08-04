@@ -92,8 +92,8 @@ static int _sock_write(dce_backend_ptr_t backend, const void *buf, size_t nbytes
 nss_status_t _nss_dce_getgrnam(dce_backend_ptr_t backend, void *data)
 {
   nss_XbyY_args_t *lookup_data = (nss_XbyY_args_t *) data;
-  int request;
-  int response = NSS_DCED_UNAVAIL;
+  nss_dced_message_t request;
+  nss_dced_message_t response = NSS_DCED_UNAVAIL;
   int string_length;
   gid_t gid;
 
@@ -106,12 +106,12 @@ nss_status_t _nss_dce_getgrnam(dce_backend_ptr_t backend, void *data)
     }
   
   request = NSS_DCED_GETGRNAM;
-  sock_write(backend, &request, sizeof(int));
+  sock_write(backend, &request, sizeof(request));
   
-  sock_write(backend, &string_length, sizeof(int));
+  sock_write(backend, &string_length, sizeof(string_length));
   sock_write(backend, lookup_data->key.name, string_length);
 
-  sock_read(backend, &response, sizeof(int));
+  sock_read(backend, &response, sizeof(response));
 
   switch(response)
     {
@@ -127,14 +127,14 @@ nss_status_t _nss_dce_getgrnam(dce_backend_ptr_t backend, void *data)
       break;
         
     default:
-      TRACE("nss_dce_group.getgrnam: returning NSS_NOTFOUND\n");
+      TRACE("nss_dce_group.getgrnam: unknown result code received, returning NSS_NOTFOUND\n");
       return NSS_NOTFOUND;
     }
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->grp.gr_name, string_length);
 
-  sock_read(backend, &gid, sizeof(gid_t));
+  sock_read(backend, &gid, sizeof(gid));
   backend->grp.gr_gid = gid;
 
   *((struct group *) lookup_data->buf.result) = backend->grp;
@@ -147,20 +147,20 @@ nss_status_t _nss_dce_getgrnam(dce_backend_ptr_t backend, void *data)
 nss_status_t _nss_dce_getgrgid(dce_backend_ptr_t backend, void *data)
 {
   nss_XbyY_args_t *lookup_data = (nss_XbyY_args_t *)data;
-  int request;
-  int response = NSS_DCED_UNAVAIL;
+  nss_dced_message_t request;
+  nss_dced_message_t response = NSS_DCED_UNAVAIL;
   int string_length;
   gid_t gid;
 
   TRACE("nss_dce_group.getgrgid: called for GID %d\n", lookup_data->key.gid);
 
   request = NSS_DCED_GETGRGID;
-  sock_write(backend, &request, sizeof(int));
+  sock_write(backend, &request, sizeof(request));
 
   gid = lookup_data->key.gid;
-  sock_write(backend, &gid, sizeof(gid_t));
+  sock_write(backend, &gid, sizeof(gid));
 
-  sock_read(backend, &response, sizeof(int));
+  sock_read(backend, &response, sizeof(response));
 
   switch(response)
     {
@@ -176,14 +176,14 @@ nss_status_t _nss_dce_getgrgid(dce_backend_ptr_t backend, void *data)
       break;
         
     default:
-      TRACE("nss_dce_group.getgrgid: returning NSS_NOTFOUND\n");
+      TRACE("nss_dce_group.getgrgid: unknown result code received, returning NSS_NOTFOUND\n");
       return NSS_NOTFOUND;
     }
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->grp.gr_name, string_length);
 
-  sock_read(backend, &gid, sizeof(gid_t));
+  sock_read(backend, &gid, sizeof(gid));
   backend->grp.gr_gid = gid;
 
   *((struct group *) lookup_data->buf.result) = backend->grp;
@@ -195,15 +195,15 @@ nss_status_t _nss_dce_getgrgid(dce_backend_ptr_t backend, void *data)
 
 nss_status_t _nss_dce_setgrent(dce_backend_ptr_t backend, void *dummy)
 {
-  int request;
-  int response = NSS_DCED_UNAVAIL;
+  nss_dced_message_t request;
+  nss_dced_message_t response = NSS_DCED_UNAVAIL;
 
   TRACE("nss_dce_group.setgrent: called\n");
     
   request = NSS_DCED_SETGRENT;
-  sock_write(backend, &request, sizeof(int));
+  sock_write(backend, &request, sizeof(request));
 
-  sock_read(backend, &response, sizeof(int));
+  sock_read(backend, &response, sizeof(response));
 
   switch(response)
     {
@@ -220,17 +220,17 @@ nss_status_t _nss_dce_setgrent(dce_backend_ptr_t backend, void *dummy)
 nss_status_t _nss_dce_getgrent(dce_backend_ptr_t backend, void *data)
 {
   nss_XbyY_args_t *lookup_data = (nss_XbyY_args_t *) data;
-  int request;
-  int response = NSS_DCED_UNAVAIL;
+  nss_dced_message_t request;
+  nss_dced_message_t response = NSS_DCED_UNAVAIL;
   int string_length;
   gid_t gid;
 
   TRACE("nss_dce_group.getgrent: called\n");
     
   request = NSS_DCED_GETGRENT;
-  sock_write(backend, &request, sizeof(int));
+  sock_write(backend, &request, sizeof(request));
 
-  sock_read(backend, &response, sizeof(int));
+  sock_read(backend, &response, sizeof(response));
 
   switch(response)
     {
@@ -250,10 +250,10 @@ nss_status_t _nss_dce_getgrent(dce_backend_ptr_t backend, void *data)
       return NSS_NOTFOUND;
     }
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->grp.gr_name, string_length);
 
-  sock_read(backend, &gid, sizeof(gid_t));
+  sock_read(backend, &gid, sizeof(gid));
   backend->grp.gr_gid = gid;
 
   *((struct group *) lookup_data->buf.result) = backend->grp;

@@ -7,18 +7,15 @@ main(int argc, char *argv[])
 
   if (argc != 2)
   {
-    fprintf(stderr, "usage: %s UID\n", argv[0]);
+    fprintf(stderr, "usage: %s username\n", argv[0]);
     exit(-1);
   }
-
-  printf("Searching for UID %d with setpwent/getpwent/endpwent.\n\n",
-         atoi(argv[1]));
 
   setpwent();
 
   while ((pwd = getpwent()) != NULL)
   {
-    if (pwd->pw_uid == atoi(argv[1]))
+    if (!strcmp(pwd->pw_name, argv[1]))
     {
       print_passwd(pwd);
       break;
@@ -26,20 +23,9 @@ main(int argc, char *argv[])
   }
 
   if (!pwd)
-    printf("Couldn't find UID %d\n\n", atoi(argv[1]));
+    printf("Couldn't find username %s\n\n", argv[1]);
   
   endpwent();
-
-  printf("Searching for UID %d with getpwuid.\n\n", atoi(argv[1]));
-
-  pwd = getpwuid(atoi(argv[1]));
-
-  if (pwd == NULL)
-    printf("Couldn't find UID %d\n\n", atoi(argv[1]));
-  else
-    print_passwd(pwd);
-
-  exit(0);
 }
 
 print_passwd(struct passwd *pwd)

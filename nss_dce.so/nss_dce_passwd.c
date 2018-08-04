@@ -92,8 +92,8 @@ static int _sock_write(dce_backend_ptr_t backend, const void *buf, size_t nbytes
 nss_status_t _nss_dce_getpwnam(dce_backend_ptr_t backend, void *data)
 {
   nss_XbyY_args_t *lookup_data = (nss_XbyY_args_t *)data;
-  int request;
-  int response = NSS_DCED_UNAVAIL;
+  nss_dced_message_t request;
+  nss_dced_message_t response = NSS_DCED_UNAVAIL;
   int string_length;
   uid_t uid;
   gid_t gid;
@@ -107,12 +107,12 @@ nss_status_t _nss_dce_getpwnam(dce_backend_ptr_t backend, void *data)
     }
   
   request = NSS_DCED_GETPWNAM;
-  sock_write(backend, &request, sizeof(int));
+  sock_write(backend, &request, sizeof(request));
   
-  sock_write(backend, &string_length, sizeof(int));
+  sock_write(backend, &string_length, sizeof(string_length));
   sock_write(backend, lookup_data->key.name, string_length);
 
-  sock_read(backend, &response, sizeof(int));
+  sock_read(backend, &response, sizeof(response));
 
   switch(response)
     {
@@ -128,29 +128,29 @@ nss_status_t _nss_dce_getpwnam(dce_backend_ptr_t backend, void *data)
       break;
         
     default:
-      TRACE("nss_dce_passwd.getpwnam: returning NSS_NOTFOUND\n");
+      TRACE("nss_dce_passwd.getpwnam: unknown result code received, returning NSS_NOTFOUND\n");
       return NSS_NOTFOUND;
     }
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_name, string_length);
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_passwd, string_length);
 
-  sock_read(backend, &uid, sizeof(uid_t));
+  sock_read(backend, &uid, sizeof(uid));
   backend->pwd.pw_uid = uid;
   
-  sock_read(backend, &gid, sizeof(gid_t));
+  sock_read(backend, &gid, sizeof(gid));
   backend->pwd.pw_gid = gid;
   
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_gecos, string_length);
   
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_dir, string_length);
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_shell, string_length);
 
   *((struct passwd *) lookup_data->buf.result) = backend->pwd;
@@ -163,8 +163,8 @@ nss_status_t _nss_dce_getpwnam(dce_backend_ptr_t backend, void *data)
 nss_status_t _nss_dce_getpwuid(dce_backend_ptr_t backend, void *data)
 {
   nss_XbyY_args_t *lookup_data = (nss_XbyY_args_t *)data;
-  int request;
-  int response = NSS_DCED_UNAVAIL;
+  nss_dced_message_t request;
+  nss_dced_message_t response = NSS_DCED_UNAVAIL;
   int string_length;
   uid_t uid;
   gid_t gid;
@@ -172,12 +172,12 @@ nss_status_t _nss_dce_getpwuid(dce_backend_ptr_t backend, void *data)
   TRACE("nss_dce_passwd.getpwuid: called for UID %d\n", lookup_data->key.uid);
 
   request = NSS_DCED_GETPWUID;
-  sock_write(backend, &request, sizeof(int));
+  sock_write(backend, &request, sizeof(request));
 
   uid = lookup_data->key.uid;
-  sock_write(backend, &uid, sizeof(uid_t));
+  sock_write(backend, &uid, sizeof(uid));
 
-  sock_read(backend, &response, sizeof(int));
+  sock_read(backend, &response, sizeof(response));
 
   switch(response)
     {
@@ -193,29 +193,29 @@ nss_status_t _nss_dce_getpwuid(dce_backend_ptr_t backend, void *data)
       break;
         
     default:
-      TRACE("nss_dce_passwd.getpwuid: returning NSS_NOTFOUND\n");
+      TRACE("nss_dce_passwd.getpwuid: unknown result code received, returning NSS_NOTFOUND\n");
       return NSS_NOTFOUND;
     }
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_name, string_length);
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_passwd, string_length);
 
-  sock_read(backend, &uid, sizeof(uid_t));
+  sock_read(backend, &uid, sizeof(uid));
   backend->pwd.pw_uid = uid;
   
-  sock_read(backend, &gid, sizeof(gid_t));
+  sock_read(backend, &gid, sizeof(gid));
   backend->pwd.pw_gid = gid;
   
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_gecos, string_length);
   
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_dir, string_length);
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_shell, string_length);
 
   *((struct passwd *) lookup_data->buf.result) = backend->pwd;
@@ -227,24 +227,24 @@ nss_status_t _nss_dce_getpwuid(dce_backend_ptr_t backend, void *data)
 
 nss_status_t _nss_dce_setpwent(dce_backend_ptr_t backend, void *data)
 {
-  int request;
-  int response = NSS_DCED_UNAVAIL;
+  nss_dced_message_t request;
+  nss_dced_message_t response = NSS_DCED_UNAVAIL;
 
   TRACE("nss_dce_passwd.setpwent: called\n");
     
   request = NSS_DCED_SETPWENT;
-  sock_write(backend, &request, sizeof(int));
+  sock_write(backend, &request, sizeof(request));
 
-  sock_read(backend, &response, sizeof(int));
+  sock_read(backend, &response, sizeof(response));
 
   switch(response)
     {
     case NSS_DCED_UNAVAIL:
-      TRACE("nss_dce_passwd.setpwent: returned NSS_UNAVAIL\n");
+      TRACE("nss_dce_passwd.setpwent: returning NSS_UNAVAIL\n");
       return NSS_UNAVAIL;
         
     default:
-      TRACE("nss_dce_passwd.setpwent: returned NSS_SUCCESS\n");
+      TRACE("nss_dce_passwd.setpwent: returning NSS_SUCCESS\n");
       return NSS_SUCCESS;
     }
 }
@@ -252,8 +252,8 @@ nss_status_t _nss_dce_setpwent(dce_backend_ptr_t backend, void *data)
 nss_status_t _nss_dce_getpwent(dce_backend_ptr_t backend, void *data)
 {
   nss_XbyY_args_t *lookup_data = (nss_XbyY_args_t *) data;
-  int request;
-  int response = NSS_DCED_UNAVAIL;
+  nss_dced_message_t request;
+  nss_dced_message_t response = NSS_DCED_UNAVAIL;
   int string_length;
   uid_t uid;
   gid_t gid;
@@ -261,9 +261,9 @@ nss_status_t _nss_dce_getpwent(dce_backend_ptr_t backend, void *data)
   TRACE("nss_dce_passwd.getpwent: called\n");
   
   request = NSS_DCED_GETPWENT;
-  sock_write(backend, &request, sizeof(int));
+  sock_write(backend, &request, sizeof(request));
 
-  sock_read(backend, &response, sizeof(int));
+  sock_read(backend, &response, sizeof(response));
 
   switch(response)
     {
@@ -283,25 +283,25 @@ nss_status_t _nss_dce_getpwent(dce_backend_ptr_t backend, void *data)
       return NSS_NOTFOUND;
     }
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_name, string_length);
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_passwd, string_length);
 
-  sock_read(backend, &uid, sizeof(uid_t));
+  sock_read(backend, &uid, sizeof(uid));
   backend->pwd.pw_uid = uid;
   
-  sock_read(backend, &gid, sizeof(gid_t));
+  sock_read(backend, &gid, sizeof(gid));
   backend->pwd.pw_gid = gid;
   
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_gecos, string_length);
   
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_dir, string_length);
 
-  sock_read(backend, &string_length, sizeof(int));
+  sock_read(backend, &string_length, sizeof(string_length));
   sock_read(backend, backend->pwd.pw_shell, string_length);
 
   *((struct passwd *) lookup_data->buf.result) = backend->pwd;
@@ -353,11 +353,11 @@ nss_backend_t *_nss_dce_passwd_constr(const char *dummy1, const char *dummy2,
 
   TRACE("nss_dce_passwd.passwd_constr: called\n");
   
-  if (!(backend = (dce_backend_ptr_t) malloc(sizeof (*backend))))
+  if (!(backend = (dce_backend_ptr_t) malloc(sizeof(*backend))))
     return (0);
 
   backend->ops = passwd_ops;
-  backend->n_ops = (sizeof (passwd_ops) / sizeof (passwd_ops[0]));
+  backend->n_ops = (sizeof (passwd_ops) / sizeof(passwd_ops[0]));
   backend->sock = 0;
   
   if (bind_sock(backend) == NSS_UNAVAIL)

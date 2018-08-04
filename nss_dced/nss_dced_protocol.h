@@ -10,7 +10,11 @@
 #ifndef NSS_DCED_PROTOCOL_H
 #define NSS_DCED_PROTOCOL_H
 
+#ifndef NSS_DCED_SOCKETPATH
 #define NSS_DCED_SOCKETPATH "/opt/dcelocal/var/security/.nss_dced"
+#endif
+
+typedef unsigned char nss_dced_message_t;
 
 #define NSS_DCED_UNAVAIL   (1)
 #define NSS_DCED_NOTFOUND  (2)

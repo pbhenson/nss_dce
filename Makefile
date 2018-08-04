@@ -10,14 +10,22 @@
 CC = gcc
 
 # Uncomment to enable the -d option for daemon debugging
-#DEBUG_DAEMON = -DDEBUG
+#
+DEBUG_DAEMON = -DDEBUG
+
+# Uncomment to use a different socket location for testing a new version
+# while still running a previous version. Pretty funky syntax to get this
+# define to propagate correctly to the lower level makefiles, eh?
+#
+SOCKETPATH = -DNSS_DCED_SOCKETPATH="\\\"\"/var/tmp/.nss_dced\"\\\" "
 
 # Uncomment to turn on debugging output from shared library
+#
 #DEBUG_LIB = -DDEBUG
 
 all:
-	@cd nss_dce.so; make CC=$(CC) DEBUG=$(DEBUG_DAEMON) all
-	@cd nss_dced; make CC=$(CC) DEBUG=$(DEBUG_LIB) all
+	@cd nss_dce.so; make CC=$(CC) DEBUG=$(DEBUG_LIB) SOCKETPATH=$(SOCKETPATH) all
+	@cd nss_dced; make CC=$(CC) DEBUG=$(DEBUG_DAEMON) SOCKETPATH=$(SOCKETPATH) all
 	@cd tests; make CC=$(CC) all
 
 install:

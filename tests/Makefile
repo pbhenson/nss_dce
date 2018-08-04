@@ -6,7 +6,7 @@
 # Copyright (c) 1997 Paul Henson -- see COPYRIGHT file for details
 #
 
-all: pwbynam pwbyuid grbynam grbygid
+all: getpwnam getpwuid getpwent getgrnam getgrgid getgrent
 
 clean:
-	@rm -f pwbynam pwbyuid grbynam grbygid *~
+	@rm -f getpwnam getpwuid getpwent getgrnam getgrgid getgrent *~

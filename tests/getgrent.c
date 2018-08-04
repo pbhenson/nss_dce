@@ -11,9 +11,6 @@ main(int argc, char *argv[])
     exit(-1);
   }
 
-  printf("Searching for groupname %s with setgrent/getgrent/endgrent.\n\n",
-         argv[1]);
-
   setgrent();
 
   while ((grp = getgrent()) != NULL)
@@ -29,17 +26,6 @@ main(int argc, char *argv[])
     printf("Couldn't find groupname %s\n\n", argv[1]);
   
   endgrent();
-
-  printf("Searching for groupname %s with getgrnam.\n\n", argv[1]);
-
-  grp = getgrnam(argv[1]);
-
-  if (grp == NULL)
-    printf("Couldn't find groupname %s\n\n", argv[1]);
-  else
-    print_group(grp);
-
-  exit(0);
 }
 
 print_group(struct group *grp)
