@@ -3,7 +3,7 @@
  *
  * Paul Henson <henson@acm.org>
  *
- * Copyright (c) 1997,1998 Paul Henson -- see COPYRIGHT file for details
+ * Copyright (c) 1997-2000 Paul Henson -- see COPYRIGHT file for details
  *
  */
 
@@ -31,6 +31,10 @@ typedef unsigned char nss_dced_message_t;
 #define NSS_DCED_GETGRENT           (9)
 #define NSS_DCED_ENDGRENT          (10)
 #define NSS_DCED_GETGROUPSBYMEMBER (11)
+#define NSS_DCED_GETSPNAM          (12)
+#define NSS_DCED_SETSPENT          (13)
+#define NSS_DCED_GETSPENT          (14)
+#define NSS_DCED_ENDSPENT          (15)
 
 #endif
 

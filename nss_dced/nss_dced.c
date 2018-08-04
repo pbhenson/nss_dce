@@ -3,7 +3,7 @@
  *
  * Paul Henson <henson@acm.org>
  *
- * Copyright (c) 1997,1998 Paul Henson -- see COPYRIGHT file for details
+ * Copyright (c) 1997-2000 Paul Henson -- see COPYRIGHT file for details
  *
  */
 
@@ -17,6 +17,7 @@
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <pwd.h>
+#include <shadow.h>
 #include <time.h>
 #include <dce/binding.h>
 #include <dce/acct.h>
@@ -133,6 +134,8 @@ int main(int argc, char **argv)
   }
 }
 
+static sec_rgy_plcy_t rgy_policy;
+
 void nss_dced_main()
 {
   int sock;
@@ -140,12 +143,20 @@ void nss_dced_main()
   struct sockaddr_un name;
   pthread_t request_thread;
   struct rlimit fdlimit;
+  error_status_t dce_st;
 
   syslog_d("increasing file descriptor limit.");
   getrlimit(RLIMIT_NOFILE, &fdlimit);
   fdlimit.rlim_cur = fdlimit.rlim_max;
   setrlimit(RLIMIT_NOFILE, &fdlimit);
 
+  sec_rgy_plcy_get_info(sec_rgy_default_handle, "", &rgy_policy, &dce_st);
+  if (dce_st)
+    {
+      syslog(LOG_ERR, "error looking up registry policy - %d.", dce_st);
+      syslog(LOG_NOTICE, "using default policy values.");
+      rgy_policy.passwd_lifetime = NSS_DCED_PASSWD_LIFETIME;
+    }
   
   if ((sock = socket(AF_UNIX, SOCK_STREAM, PF_UNSPEC)) < 0)
     {
@@ -199,7 +210,7 @@ void nss_dced_main()
 pthread_addr_t handle_request(pthread_addr_t arg)
 {
   int sock = (int)arg;
-  sec_rgy_cursor_t account_cursor, group_cursor;
+  sec_rgy_cursor_t passwd_cursor, shadow_cursor, group_cursor;
   sec_rgy_name_t pname;
   nss_dced_message_t request, response;
   int string_length;
@@ -216,29 +227,29 @@ pthread_addr_t handle_request(pthread_addr_t arg)
 	    read(sock, &string_length, sizeof(string_length));
 	    if (string_length > sec_rgy_name_t_size) string_length = sec_rgy_name_t_size;
 	    read(sock, pname, string_length);
-	    sec_rgy_cursor_reset(&account_cursor);
+	    sec_rgy_cursor_reset(&passwd_cursor);
 	    syslog_d("handle_request(%d): lookup for username %s.", sock, pname);
-	    nss_dced_acct_lookup(&account_cursor, sock, pname);
+	    nss_dced_passwd_lookup(&passwd_cursor, sock, pname);
 	    break;
 	    
           case NSS_DCED_GETPWUID:
 	    syslog_d("handle_request(%d): received NSS_DCED_GETPWUID.", sock);
 	    read(sock, &uid, sizeof(uid));
-	    sec_rgy_cursor_reset(&account_cursor);
+	    sec_rgy_cursor_reset(&passwd_cursor);
 	    syslog_d("handle_request(%d): lookup for UID %d.", sock, uid);
-	    nss_dced_getpwuid(&account_cursor, sock, uid);
+	    nss_dced_getpwuid(&passwd_cursor, sock, uid);
 	    break;
 	    
           case NSS_DCED_SETPWENT:
 	    syslog_d("handle_request(%d): received NSS_DCED_SETPWENT.", sock);
-	    sec_rgy_cursor_reset(&account_cursor);
+	    sec_rgy_cursor_reset(&passwd_cursor);
 	    response = NSS_DCED_SUCCESS;
 	    write(sock, &response, sizeof(response));
 	    break;
 	    
           case NSS_DCED_GETPWENT:
 	    syslog_d("handle_request(%d): received NSS_DCED_GETPWENT.", sock);
-	    nss_dced_acct_lookup(&account_cursor, sock, "");
+	    nss_dced_passwd_lookup(&passwd_cursor, sock, "");
 	    break;
           
           case NSS_DCED_ENDPWENT:
@@ -285,13 +296,40 @@ pthread_addr_t handle_request(pthread_addr_t arg)
 	    syslog_d("handle_request(%d): groups lookup for username %s.", sock, pname);
 	    nss_dced_getgroupsbymember(sock, pname);
 	    break;
+
+  	  case NSS_DCED_GETSPNAM:
+	    syslog_d("handle_request(%d): received NSS_DCED_GETSPNAM.", sock);
+	    read(sock, &string_length, sizeof(string_length));
+	    if (string_length > sec_rgy_name_t_size) string_length = sec_rgy_name_t_size;
+	    read(sock, pname, string_length);
+	    sec_rgy_cursor_reset(&shadow_cursor);
+	    syslog_d("handle_request(%d): shadow lookup for username %s.", sock, pname);
+	    nss_dced_shadow_lookup(&shadow_cursor, sock, pname);
+	    break;
+	    
+          case NSS_DCED_SETSPENT:
+	    syslog_d("handle_request(%d): received NSS_DCED_SETSPENT.", sock);
+	    sec_rgy_cursor_reset(&shadow_cursor);
+	    response = NSS_DCED_SUCCESS;
+	    write(sock, &response, sizeof(response));
+	    break;
+	    
+          case NSS_DCED_GETSPENT:
+	    syslog_d("handle_request(%d): received NSS_DCED_GETSPENT.", sock);
+	    nss_dced_shadow_lookup(&shadow_cursor, sock, "");
+	    break;
+          
+          case NSS_DCED_ENDSPENT:
+	    syslog_d("handle_request(%d): received NSS_DCED_ENDSPENT.", sock);
+	    break;
+          
         }
     }
   syslog_d("handle_request(%d): remote closed connection.", sock);
   close(sock);
 }
 
-void nss_dced_acct_lookup(sec_rgy_cursor_t *account_cursor, int sock, sec_rgy_name_t pname)
+void nss_dced_passwd_lookup(sec_rgy_cursor_t *passwd_cursor, int sock, sec_rgy_name_t pname)
 {
   sec_rgy_login_name_t name_key;
   sec_rgy_sid_t uuid_sid;
@@ -305,26 +343,26 @@ void nss_dced_acct_lookup(sec_rgy_cursor_t *account_cursor, int sock, sec_rgy_na
   uid_t uid;
   gid_t gid;
 
-  syslog_d("acct_lookup(%d): called for username %s.", sock, pname);
+  syslog_d("passwd_lookup(%d): called for username %s.", sock, pname);
 
   strncpy(name_key.pname, pname, sec_rgy_name_t_size);
   *name_key.gname = '\0';
   *name_key.oname = '\0';
 
-  sec_rgy_acct_lookup(sec_rgy_default_handle, &name_key, account_cursor,
+  sec_rgy_acct_lookup(sec_rgy_default_handle, &name_key, passwd_cursor,
                       &name_key, &uuid_sid, &unix_sid, &key_parts,
                       &user_part, &admin_part, &dce_status);
 
   switch (dce_status)
     {
       case error_status_ok:
-        syslog_d("acct_lookup(%d): returning NSS_DCED_SUCCESS.", sock);
+        syslog_d("passwd_lookup(%d): returning NSS_DCED_SUCCESS.", sock);
         response = NSS_DCED_SUCCESS;
         write(sock, &response, sizeof(response));
         break;
 
       case sec_rgy_server_unavailable:
-        syslog_d("acct_lookup(%d): returning NSS_DCED_UNAVAIL.", sock);
+        syslog_d("passwd_lookup(%d): returning NSS_DCED_UNAVAIL.", sock);
         response = NSS_DCED_UNAVAIL;
         write(sock, &response, sizeof(response));
         return;
@@ -332,7 +370,7 @@ void nss_dced_acct_lookup(sec_rgy_cursor_t *account_cursor, int sock, sec_rgy_na
       case sec_rgy_no_more_entries:
       case sec_rgy_object_not_found:
       default:
-        syslog_d("acct_lookup(%d): returning NSS_DCED_NOTFOUND.", sock);
+        syslog_d("passwd_lookup(%d): returning NSS_DCED_NOTFOUND.", sock);
         response = NSS_DCED_NOTFOUND;
         write(sock, &response, sizeof(response));
         return;
@@ -342,9 +380,9 @@ void nss_dced_acct_lookup(sec_rgy_cursor_t *account_cursor, int sock, sec_rgy_na
   write(sock, &string_length, sizeof(string_length));
   write(sock, name_key.pname, string_length);
 
-  string_length = strlen(user_part.passwd)+1;
+  string_length = 1+1;
   write(sock, &string_length, sizeof(string_length));
-  write(sock, user_part.passwd, string_length);
+  write(sock, "x", string_length);
   
   uid = unix_sid.person;
   write(sock, &uid, sizeof(uid));
@@ -365,7 +403,83 @@ void nss_dced_acct_lookup(sec_rgy_cursor_t *account_cursor, int sock, sec_rgy_na
   write(sock, user_part.shell, string_length);
 }
 
-void nss_dced_getpwuid(sec_rgy_cursor_t *account_cursor, int sock, uid_t uid)
+void nss_dced_shadow_lookup(sec_rgy_cursor_t *shadow_cursor, int sock, sec_rgy_name_t pname)
+{
+  sec_rgy_login_name_t name_key;
+  sec_rgy_sid_t uuid_sid;
+  sec_rgy_unix_sid_t unix_sid;
+  sec_rgy_acct_key_t key_parts;
+  sec_rgy_acct_user_t user_part;
+  sec_rgy_acct_admin_t admin_part;
+  error_status_t dce_status;
+  nss_dced_message_t response;
+  int string_length;
+  long value;
+
+  syslog_d("shadow_lookup(%d): called for username %s.", sock, pname);
+
+  strncpy(name_key.pname, pname, sec_rgy_name_t_size);
+  *name_key.gname = '\0';
+  *name_key.oname = '\0';
+
+  sec_rgy_acct_lookup(sec_rgy_default_handle, &name_key, shadow_cursor,
+                      &name_key, &uuid_sid, &unix_sid, &key_parts,
+                      &user_part, &admin_part, &dce_status);
+
+  switch (dce_status)
+    {
+      case error_status_ok:
+        syslog_d("shadow_lookup(%d): returning NSS_DCED_SUCCESS.", sock);
+        response = NSS_DCED_SUCCESS;
+        write(sock, &response, sizeof(response));
+        break;
+
+      case sec_rgy_server_unavailable:
+        syslog_d("shadow_lookup(%d): returning NSS_DCED_UNAVAIL.", sock);
+        response = NSS_DCED_UNAVAIL;
+        write(sock, &response, sizeof(response));
+        return;
+
+      case sec_rgy_no_more_entries:
+      case sec_rgy_object_not_found:
+      default:
+        syslog_d("shadow_lookup(%d): returning NSS_DCED_NOTFOUND.", sock);
+        response = NSS_DCED_NOTFOUND;
+        write(sock, &response, sizeof(response));
+        return;
+    }
+
+  string_length = strlen(name_key.pname)+1;
+  write(sock, &string_length, sizeof(string_length));
+  write(sock, name_key.pname, string_length);
+
+  string_length = strlen(user_part.passwd)+1;
+  write(sock, &string_length, sizeof(string_length));
+  write(sock, user_part.passwd, string_length);
+
+  value = user_part.passwd_dtm / (24*60*60);
+  write(sock, &value, sizeof(value));
+
+  value = NSS_DCED_SP_MIN;
+  write(sock, &value, sizeof(value));
+
+  value = ((rgy_policy.passwd_lifetime != 0) ? rgy_policy.passwd_lifetime / (24*60*60) : -1);
+  write(sock, &value, sizeof(value));
+
+  value = NSS_DCED_SP_WARN;
+  write(sock, &value, sizeof(value));
+
+  value = NSS_DCED_SP_INACT;
+  write(sock, &value, sizeof(value));
+
+  value = admin_part.expiration_date / (24*60*60);
+  write(sock, &value, sizeof(value));
+
+  value = 0;
+  write(sock, &value, sizeof(value));
+}
+
+void nss_dced_getpwuid(sec_rgy_cursor_t *passwd_cursor, int sock, uid_t uid)
 {
   sec_rgy_name_t pgo_name;
   error_status_t dce_status;
@@ -395,8 +509,8 @@ void nss_dced_getpwuid(sec_rgy_cursor_t *account_cursor, int sock, uid_t uid)
 	return;
     }
 
-  syslog_d("getpwuid(%d): calling acct_lookup for username %s.", sock, pgo_name);
-  nss_dced_acct_lookup(account_cursor, sock, pgo_name);
+  syslog_d("getpwuid(%d): calling passwd_lookup for username %s.", sock, pgo_name);
+  nss_dced_passwd_lookup(passwd_cursor, sock, pgo_name);
 }
 
 void nss_dced_getgrnam(int sock, sec_rgy_name_t pname)

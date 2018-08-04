@@ -3,7 +3,7 @@
 #
 # Paul Henson <henson@acm.org>
 #
-# Copyright (c) 1997,1998 Paul Henson -- see COPYRIGHT file for details
+# Copyright (c) 1997-2000 Paul Henson -- see COPYRIGHT file for details
 #
 
 # Choose your C compiler
@@ -11,6 +11,9 @@ CC = gcc
 
 # Comment out to enable sequential password lookups (getpwent)
 GETPWENT_DISABLE = -DNO_GETPWENT
+
+# Comment out to enable sequential shadow lookups (getspent)
+GETSPENT_DISABLE = -DNO_GETSPENT
 
 # Comment out to enable sequential group lookups (getgrent)
 GETGRENT_DISABLE = -DNO_GETGRENT

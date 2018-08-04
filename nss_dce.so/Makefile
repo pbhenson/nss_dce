@@ -3,10 +3,10 @@
 #
 # Paul Henson <henson@acm.org>
 #
-# Copyright (c) 1997,1998 Paul Henson -- see COPYRIGHT file for details
+# Copyright (c) 1997-2000 Paul Henson -- see COPYRIGHT file for details
 #
 
-OBJECTS = nss_dce_passwd.o nss_dce_group.o nss_dce_common.o
+OBJECTS = nss_dce_passwd.o nss_dce_shadow.o nss_dce_group.o nss_dce_common.o
 
 CFLAGS = -fpic $(DEBUG) $(SOCKETPATH) $(SEQUENTIAL_DISABLE) -D_REENTRANT -DPIC -D_TS_ERRNO -I../nss_dced
 

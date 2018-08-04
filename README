@@ -1,4 +1,4 @@
-DCE Naming Services for Solaris -- Copyright (c) 1997-1999 Paul Henson
+DCE Naming Services for Solaris -- Copyright (c) 1997-2000 Paul Henson
 ----------------------------------------------------------------------
 
 Introduction
@@ -6,15 +6,15 @@ Introduction
 
 nss_dce is a package that integrates DCE into the Solaris naming services
 switch architecture. It allows you to specify "dce" as a source in the
-/etc/nsswitch.conf file for passwd and group lookups, removing the need
-to duplicate your security registry in local passwd and group files.
+/etc/nsswitch.conf file for passwd, shadow and group lookups, removing the
+need to duplicate your security registry in local passwd and group files.
 
 
 Installation
 ------------
 
 If you wish to change the compiler used (defaults to gcc), enable
-debugging, or enable sequential passwd/group lookups, edit the
+debugging, or enable sequential passwd/shadow/group lookups, edit the
 Makefile. Turning on debugging in the daemon enables verbose debugging
 output via syslog with priority DEBUG. Turning on debugging in the shared
 library will generate messages to stderr when clients use the naming
@@ -40,12 +40,6 @@ which must be replaced if you want to reenable Transarc's bundled naming
 services integration. It will also copy S15-80nss_dced to /etc/rc3.d,
 which will start nss_dced at boot.
 
-As of version 1.5, nss_dced now completely detaches from the parent process
-and functions as a true daemon. Unlike previous releases, it can not run
-via the bosserver. If you currently run nss_dced via the bosserver, you
-must remove that configuration and start nss_dced at boot via the rc3.d
-script.
-
 To help prevent failure, once nss_dced detaches from the parent process, it
 spawns a child to handle naming service requests. The original nss_dced
 process monitors the child, and spawns a new child if the original should
@@ -56,6 +50,72 @@ also logs detailed debugging information at the DEBUG priority.
 The PID of the parent nss_dced process is logged to
 /opt/dcelocal/var/security/.nss_dced.pid. If the parent receives either a
 SIGHUP or a SIGTERM, it will kill the child and exit.
+
+
+Shadow Support Details
+----------------------
+
+Version 2.5 of nss_dce now supports the getsp* naming service functions.
+These functions return data in the following structure, as defined in
+shadow.h:
+
+          struct spwd{
+                  char *sp_namp;          /* login name */
+                  char *sp_pwdp;          /* encrypted passwd */
+                  long sp_lstchg;         /* date of last change */
+                  long sp_min;            /* min days to passwd change */
+                  long sp_max;            /* max days to passwd change*/
+                  long sp_warn;           /* warning period */
+                  long sp_inact;          /* max days inactive */
+                  long sp_expire;         /* account expiry date */
+                  unsigned long sp_flag;  /* not used */
+          };
+
+
+The following describes the mapping used by nss_dce to provide this data
+for a given account:
+
+    sp_namp     DCE principal name
+
+    sp_pwdp     passwd field of sec_rgy_acct_user_t structure as returned
+                by sec_rgy_account_lookup
+
+    sp_lstchg   passwd_dtm field of sec_rgy_acct_user_t structure as
+                returned by sec_rgy_account_lookup converted to days
+
+    sp_min      NSS_DCED_SP_MIN defined at compile time in nss_dced.h,
+                defaults to -1
+
+    sp_max      passwd_lifetime field of sec_rgy_plcy_t structure as
+                returned by sec_rgy_plcy_get_info. Note that this is
+                the general registry policy, and does not reflect any
+                specific policy that might apply to the given principal.
+                If policy lookup fails, it uses NSS_DCED_PASSWD_LIFETIME
+                defined at compile time in nss_dced.h, which defaults
+                to 0
+
+    sp_warn     NSS_DCED_SP_WARN defined at compile time in nss_dced.h,
+                defaults to -1
+
+    sp_inact    NSS_DCED_SP_INACT defined at compile time in nss_dced.h,
+                defaults to -1
+
+    sp_expire   expiration_date field of sec_rgy_acct_admin_t structure
+                as returned by sec_rgy_account_lookup converted to days
+
+    sp_flag     unused, set to 0
+
+
+nss_dce allows any user to make getsp* calls to acquire shadow entries for
+DCE principals, unlike the shadow file backend, which allows only root to
+retrieve shadow entries. By default, the DCE security registry does not
+return a Unix-format hashed password. The registry can be configured to
+return the hashed password, which would allow complete plug-and-play
+support for applications that authenticate via the shadow password
+interface. However, enabling return of hashed passwords from the registry
+will allow any user to acquire them through getsp* calls as well as
+through rgy_edit, dcecp, or direct use of the DCE security API. Generally,
+this has undesirable security implications. 
 
 
 FAQs
@@ -121,6 +181,13 @@ structure?
 
 Changes
 -------
+
+Version 2.5
+
+     - Added support for shadow backend. Be sure to read the section of
+       this README about shadow support for implementation details and
+       security implications.
+
 
 Version 2.1
 
