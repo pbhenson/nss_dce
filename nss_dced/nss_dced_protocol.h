@@ -10,7 +10,7 @@
 #ifndef NSS_DCED_PROTOCOL_H
 #define NSS_DCED_PROTOCOL_H
 
-#define NSS_DCED_SOCKETPATH "/tmp/.nss_dced"
+#define NSS_DCED_SOCKETPATH "/opt/dcelocal/var/security/.nss_dced"
 
 #define NSS_DCED_UNAVAIL   (1)
 #define NSS_DCED_NOTFOUND  (2)
@@ -26,7 +26,6 @@
 #define NSS_DCED_SETGRENT  (8)
 #define NSS_DCED_GETGRENT  (9)
 #define NSS_DCED_ENDGRENT (10)
-#define NSS_DCED_SHUTDOWN (11)
 
 #endif
 

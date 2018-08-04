@@ -39,7 +39,7 @@ without installing them if you are running nscd. Be sure to kill nscd
 before your test. For example,
 
   /etc/init.d/nscd stop
-  /path/to/nss_dce-0.5/nss_dced &
+  /path/to/nss_dce-1.0/nss_dced &
   setenv LD_LIBRARY_PATH /path/to/nss_dce-0.5/nss_dce.so:${LD_LIBRARY_PATH}
 
 
@@ -52,26 +52,23 @@ will copy nss_dced to /usr/sbin, and nss_dce.so.1 to /usr/lib. If you
 previously tested the service by running the daemon by hand, be sure to
 kill it now, and restart nscd.
 
-The daemon *must* be running for the naming service to function. While
-I've done my best to make the daemon robust, I can not guarantee that
-it will never die :). If you run DFS, I strongly recommend adding the
-daemon as a bosserver process. This has two advantages. First, it
-guarantees that the daemon will be started *after* DCE initializes,
-but *before* any rc3.d scripts run that might rely on naming services.
-Second, if for some reason the daemon does die, the bosserver will
-automatically restart it. To add the daemon as a bosserver process,
-execute the following command (please note your DCE identity must be
-on the admin.bos list for the host for the command to succeed):
+The daemon *must* be running for the naming services to function. In
+previous releases, I recommended running nss_dced as a bosserver
+process. At the time, I mistakenly thought that the bosserver ran on all
+DFS machines; however, it actually runs only on DFS server machines. While
+it is possible to run the bosserver on a client machine, it requires
+creating principals and accounts for the clients. Because of this, and the
+stability demonstrated by nss_dced at my site, I currently start nss_dced
+from a script named S15-80nss_dced in /etc/rc3.d on my client machines. On
+my DFS servers, I still run it as a bosserver process, but I decided the
+overhead to do the same on a client was too high.
+
+To add the daemon as a bosserver process, execute the following command
+(please note your DCE identity must be on the admin.bos list for the host
+for the command to succeed): 
 
   bos create -server /.:/hosts/hostname -process nss_dced -type simple \
     -cmd /usr/sbin/nss_dced
-
-
-If you're not running the bosserver, you can start the daemon from an rc3.d
-script that runs after DCE, but before anything that relies on naming
-services. However, if the daemon dies, and your script doesn't restart
-it, you will lose integration. The daemon should not die, but I'm paranoid,
-ok?
 
 
 FAQs
@@ -115,12 +112,32 @@ structure?
      the group structure. Feel free to complain if this lack bothers you.
 
 
+This package is great! How can I thank you?
+
+     If you find this package useful, I'd really appreciate hearing from
+     you. Send me email at <henson@acm.org> with a description of how
+     your site uses DCE, and what benefits nss_dce provides for you.
+
+
 Changes
 -------
 
+Version 1.0
+
+     - Moved default socket location from /tmp to /opt/dcelocal/var/security
+       for security reasons. (Thanks to Ben Cox of Transarc for suggestion)
+
+     - Added check to avoid potential buffer overflow in nss_dced if a
+       malicious client passed an oversize query string.
+
+     - Cleaned up error handling in nss_dced, which wasn't handling
+       unexpected errors (in particular sec_rgy_not_authorized) very
+       well.
+
+
 Version 0.5
 
-     First publicly released version.
+     - First publicly released version.
 
 
 Contributors

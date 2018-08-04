@@ -135,6 +135,7 @@ pthread_addr_t handle_request(pthread_addr_t arg)
         case NSS_DCED_GETPWNAM:
           TRACE("nss_dced.handle_request(%d): received NSS_DCED_GETPWNAM\n", sock);
           read(sock, &string_length, sizeof(int));
+	  if (string_length > sec_rgy_name_t_size) string_length = sec_rgy_name_t_size;
           read(sock, pname, string_length);
           sec_rgy_cursor_reset(&account_cursor);
           TRACE("nss_dced.handle_request(%d): lookup for username %s\n", sock, pname);
@@ -168,6 +169,7 @@ pthread_addr_t handle_request(pthread_addr_t arg)
         case NSS_DCED_GETGRNAM:
           TRACE("nss_dced.handle_request(%d): received NSS_DCED_GETGRNAM\n", sock);
           read(sock, &string_length, sizeof(int));
+	  if (string_length > sec_rgy_name_t_size) string_length = sec_rgy_name_t_size;
           read(sock, pname, string_length);
           TRACE("nss_dced.handle_request(%d): lookup for groupname %s\n", sock, pname);
           nss_dced_getgrnam(rgy_context, sock, pname);
@@ -229,6 +231,12 @@ void nss_dced_acct_lookup(sec_rgy_handle_t rgy_context, sec_rgy_cursor_t *accoun
 
   switch (dce_status)
     {
+      case error_status_ok:
+        TRACE("nss_dced.acct_lookup(%d): returning NSS_DCED_SUCCESS\n", sock);
+        response = NSS_DCED_SUCCESS;
+        write(sock, &response, sizeof(int));
+        break;
+
       case sec_rgy_server_unavailable:
         TRACE("nss_dced.acct_lookup(%d): returning NSS_DCED_UNAVAIL\n", sock);
         response = NSS_DCED_UNAVAIL;
@@ -237,16 +245,11 @@ void nss_dced_acct_lookup(sec_rgy_handle_t rgy_context, sec_rgy_cursor_t *accoun
 
       case sec_rgy_no_more_entries:
       case sec_rgy_object_not_found:
+      default:
         TRACE("nss_dced.acct_lookup(%d): returning NSS_DCED_NOTFOUND\n", sock);
         response = NSS_DCED_NOTFOUND;
         write(sock, &response, sizeof(int));
         return;
-
-      case error_status_ok:
-        TRACE("nss_dced.acct_lookup(%d): returning NSS_DCED_SUCCESS\n", sock);
-        response = NSS_DCED_SUCCESS;
-        write(sock, &response, sizeof(int));
-        break;
     }
 
   string_length = strlen(name_key.pname)+1;
@@ -290,17 +293,21 @@ void nss_dced_getpwuid(sec_rgy_handle_t rgy_context, sec_rgy_cursor_t *account_c
 
   switch (dce_status)
     {
-    case sec_rgy_server_unavailable:
-      TRACE("nss_dced.getpwuid(%d): returning NSS_DCED_UNAVAIL\n", sock);
-      response = NSS_DCED_UNAVAIL;
-      write(sock, &response, sizeof(int));
-      return;
+      case error_status_ok:
+	break;
 
-    case sec_rgy_object_not_found:
-      TRACE("nss_dced.getpwuid(%d): returning NSS_DCED_NOTFOUND\n", sock);
-      response = NSS_DCED_NOTFOUND;
-      write(sock, &response, sizeof(int));
-      return;
+      case sec_rgy_server_unavailable:
+	TRACE("nss_dced.getpwuid(%d): returning NSS_DCED_UNAVAIL\n", sock);
+	response = NSS_DCED_UNAVAIL;
+	write(sock, &response, sizeof(int));
+	return;
+
+      case sec_rgy_object_not_found:
+      default:
+	TRACE("nss_dced.getpwuid(%d): returning NSS_DCED_NOTFOUND\n", sock);
+	response = NSS_DCED_NOTFOUND;
+	write(sock, &response, sizeof(int));
+	return;
     }
 
   TRACE("nss_dced.getpwuid(%d): calling acct_lookup for username %s\n", sock, pgo_name);
@@ -324,24 +331,25 @@ void nss_dced_getgrnam(sec_rgy_handle_t rgy_context, int sock, sec_rgy_name_t pn
 
   switch (dce_status)
     {
-    case sec_rgy_server_unavailable:
-      TRACE("nss_dced.getgrnam(%d): returning NSS_DCED_UNAVAIL\n", sock);
-      response = NSS_DCED_UNAVAIL;
-      write(sock, &response, sizeof(int));
-      return;
+      case error_status_ok:
+	TRACE("nss_dced.getgrnam(%d): returning NSS_DCED_SUCCESS\n", sock);
+	response = NSS_DCED_SUCCESS;
+	write(sock, &response, sizeof(int));
+	break;
 
-    case sec_rgy_no_more_entries:
-    case sec_rgy_object_not_found:
-      TRACE("nss_dced.getgrnam(%d): returning NSS_DCED_NOTFOUND\n", sock);
-      response = NSS_DCED_NOTFOUND;
-      write(sock, &response, sizeof(int));
-      return;
+      case sec_rgy_server_unavailable:
+	TRACE("nss_dced.getgrnam(%d): returning NSS_DCED_UNAVAIL\n", sock);
+	response = NSS_DCED_UNAVAIL;
+	write(sock, &response, sizeof(int));
+	return;
 
-    case error_status_ok:
-      TRACE("nss_dced.getgrnam(%d): returning NSS_DCED_SUCCESS\n", sock);
-      response = NSS_DCED_SUCCESS;
-      write(sock, &response, sizeof(int));
-      break;
+      case sec_rgy_no_more_entries:
+      case sec_rgy_object_not_found:
+      default:
+	TRACE("nss_dced.getgrnam(%d): returning NSS_DCED_NOTFOUND\n", sock);
+	response = NSS_DCED_NOTFOUND;
+	write(sock, &response, sizeof(int));
+	return;
     }
 
   string_length = strlen(pname)+1;
@@ -359,6 +367,7 @@ void nss_dced_getgrgid(sec_rgy_handle_t rgy_context, int sock, gid_t gid)
   sec_rgy_name_t pgo_name;
   error_status_t dce_status;
   int response;
+  int string_length;
 
   TRACE("nss_dced.getgrgid(%d): called for GID %d\n", sock, gid);
   
@@ -367,21 +376,33 @@ void nss_dced_getgrgid(sec_rgy_handle_t rgy_context, int sock, gid_t gid)
 
   switch (dce_status)
     {
-    case sec_rgy_server_unavailable:
-      TRACE("nss_dced.getgrgid(%d): returning NSS_DCED_UNAVAILn", sock);
-      response = NSS_DCED_UNAVAIL;
-      write(sock, &response, sizeof(int));
-      return;
+      case error_status_ok:
+	TRACE("nss_dced.getgrnam(%d): returning NSS_DCED_SUCCESS\n", sock);
+	response = NSS_DCED_SUCCESS;
+	write(sock, &response, sizeof(int));
+	break;
 
-    case sec_rgy_object_not_found:
-      TRACE("nss_dced.getgrgid(%d): returning NSS_DCED_NOTFOUND\n", sock);
-      response = NSS_DCED_NOTFOUND;
-      write(sock, &response, sizeof(int));
-      return;
+      case sec_rgy_server_unavailable:
+	TRACE("nss_dced.getgrgid(%d): returning NSS_DCED_UNAVAILn", sock);
+	response = NSS_DCED_UNAVAIL;
+	write(sock, &response, sizeof(int));
+	return;
+
+      case sec_rgy_object_not_found:
+      default:
+	TRACE("nss_dced.getgrgid(%d): returning NSS_DCED_NOTFOUND\n", sock);
+	response = NSS_DCED_NOTFOUND;
+	write(sock, &response, sizeof(int));
+	return;
     }
 
-  TRACE("nss_dced.getgrgid(%d): calling getgrnam for groupname %s\n", sock, pgo_name);
-  nss_dced_getgrnam(rgy_context, sock, pgo_name);
+  string_length = strlen(pgo_name)+1;
+  write(sock, &string_length, sizeof(int));
+  write(sock, pgo_name, string_length);
+
+  write(sock, &gid, sizeof(gid_t));
+
+  return;
 }
 
 void nss_dced_getgrent(sec_rgy_handle_t rgy_context, sec_rgy_cursor_t *group_cursor, int sock)
@@ -398,23 +419,24 @@ void nss_dced_getgrent(sec_rgy_handle_t rgy_context, sec_rgy_cursor_t *group_cur
 
   switch (dce_status)
     {
-    case sec_rgy_server_unavailable:
-      TRACE("nss_dced.getgrent(%d): returning NSS_DCED_UNAVAIL\n", sock);
-      response = NSS_DCED_UNAVAIL;
-      write(sock, &response, sizeof(int));
-      return;
+      case error_status_ok:
+	TRACE("nss_dced.getgrent(%d): returning NSS_DCED_SUCCESS\n", sock);
+	response = NSS_DCED_SUCCESS;
+	write(sock, &response, sizeof(int));
+	break;
 
-    case sec_rgy_no_more_entries:
-      TRACE("nss_dced.getgrent(%d): returning NSS_DCED_NOTFOUND\n", sock);
-      response = NSS_DCED_NOTFOUND;
-      write(sock, &response, sizeof(int));
-      return;
+      case sec_rgy_server_unavailable:
+	TRACE("nss_dced.getgrent(%d): returning NSS_DCED_UNAVAIL\n", sock);
+	response = NSS_DCED_UNAVAIL;
+	write(sock, &response, sizeof(int));
+	return;
 
-    case error_status_ok:
-      TRACE("nss_dced.getgrent(%d): returning NSS_DCED_SUCCESS\n", sock);
-      response = NSS_DCED_SUCCESS;
-      write(sock, &response, sizeof(int));
-      break;
+      case sec_rgy_no_more_entries:
+      default:
+	TRACE("nss_dced.getgrent(%d): returning NSS_DCED_NOTFOUND\n", sock);
+	response = NSS_DCED_NOTFOUND;
+	write(sock, &response, sizeof(int));
+	return;
     }
 
   string_length = strlen(pgo_name)+1;
